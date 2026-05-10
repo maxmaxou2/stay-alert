@@ -1,0 +1,15 @@
+# Example stay-alert configuration. Copy to ~/.config/stay-alert/config.toml and tweak.
+
+# Controls how long-running turn ETA predictions are calculated.
+[predictor]
+sampleSize = 20
+timeoutMs = 1000
+
+# Lists terminal applications considered active coding-agent hosts.
+[focus]
+terminalApps = ["Ghostty", "iTerm2", "Terminal", "Alacritty", "kitty", "WezTerm"]
+
+# Controls sounds used for transient and sticky notifications.
+[notifications]
+# transientSound default: null (no sound). TOML has no null value, so omit this key to keep the default.
+stickySound = "default"
