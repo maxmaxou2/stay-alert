@@ -28,15 +28,15 @@ export async function isTerminalFocused(config: Config): Promise<FocusResult> {
 	const timeout = setTimeout(() => abortController.abort(), FOCUS_TIMEOUT_MS);
 
 	try {
-		const process = Bun.spawn(["osascript", "-e", FRONTMOST_APP_SCRIPT], {
+		const proc = Bun.spawn(["osascript", "-e", FRONTMOST_APP_SCRIPT], {
 			stdout: "pipe",
 			stderr: "ignore",
 			signal: abortController.signal,
 		});
 
 		const [stdout, exitCode] = await Promise.all([
-			new Response(process.stdout).text(),
-			process.exited,
+			new Response(proc.stdout).text(),
+			proc.exited,
 		]);
 		const appName = stdout.trim();
 
