@@ -11,10 +11,15 @@ type InitOptions = {
 
 type JsonObject = Record<string, unknown>;
 
-type HookEvent = "UserPromptSubmit" | "Stop" | "Notification";
+type HookEvent =
+	| "UserPromptSubmit"
+	| "Stop"
+	| "Notification"
+	| "PermissionRequest";
 
 type HookSpec = {
 	event: HookEvent;
+	matcher?: string;
 	command: string;
 };
 
@@ -30,6 +35,11 @@ const hookSpecs: HookSpec[] = [
 	{
 		event: "Notification",
 		command: "stay-alert claude-code-hook on-notification",
+	},
+	{
+		event: "PermissionRequest",
+		matcher: "*",
+		command: "stay-alert claude-code-hook on-permission-request",
 	},
 ];
 
@@ -175,6 +185,7 @@ function mergeHooks(settings: JsonObject): boolean {
 		}
 
 		eventHooks.push({
+			...(spec.matcher === undefined ? {} : { matcher: spec.matcher }),
 			hooks: [{ type: "command", command: spec.command }],
 		});
 		changed = true;

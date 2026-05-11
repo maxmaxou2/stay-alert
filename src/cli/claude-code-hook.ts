@@ -6,14 +6,18 @@ import {
 } from "../core/index.ts";
 import { formatDuration } from "./_format.ts";
 
-type HookEvent = "on-prompt" | "on-stop" | "on-notification";
+type HookEvent =
+	| "on-prompt"
+	| "on-stop"
+	| "on-notification"
+	| "on-permission-request";
 
 export async function runClaudeCodeHook(argv: string[]): Promise<void> {
 	const [event, ...extraArgs] = argv;
 
 	if (!isHookEvent(event) || extraArgs.length > 0) {
 		throw new Error(
-			"usage: stay-alert claude-code-hook <on-prompt | on-stop | on-notification>",
+			"usage: stay-alert claude-code-hook <on-prompt | on-stop | on-notification | on-permission-request>",
 		);
 	}
 
@@ -34,7 +38,17 @@ export async function runClaudeCodeHook(argv: string[]): Promise<void> {
 			return;
 		}
 
-		await handleOnNotification(payload);
+		if (event === "on-notification") {
+			await handleOnNotification(payload);
+			return;
+		}
+
+		if (event === "on-permission-request") {
+			await handleOnPermissionRequest(payload);
+			return;
+		}
+
+		event satisfies never;
 	} catch (error) {
 		console.warn(`stay-alert: hook handler failed: ${errorMessage(error)}`);
 	}
@@ -130,9 +144,29 @@ async function handleOnNotification(
 	});
 }
 
+async function handleOnPermissionRequest(
+	payload: Record<string, unknown>,
+): Promise<void> {
+	const toolName = payload.tool_name;
+
+	if (typeof toolName !== "string") {
+		console.warn("stay-alert: hook payload missing string tool_name");
+		return;
+	}
+
+	const ctx = await createContext();
+	await notifyUser(ctx, {
+		title: "Claude Code",
+		message: `Permission required: ${toolName}`,
+	});
+}
+
 function isHookEvent(value: string | undefined): value is HookEvent {
 	return (
-		value === "on-prompt" || value === "on-stop" || value === "on-notification"
+		value === "on-prompt" ||
+		value === "on-stop" ||
+		value === "on-notification" ||
+		value === "on-permission-request"
 	);
 }
 
