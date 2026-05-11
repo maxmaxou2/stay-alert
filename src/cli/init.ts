@@ -8,6 +8,7 @@ import {
 	readlink,
 	realpath,
 	rename,
+	stat,
 	writeFile,
 } from "node:fs/promises";
 import { homedir } from "node:os";
@@ -251,11 +252,13 @@ async function installOpencodePlugin(): Promise<void> {
 	if (currentContents === null) {
 		await writeTextAtomically(resolvedFile, pluginContents);
 		console.log(`opencode:    plugin installed at ${resolvedFile}`);
+		await linkOpencodePackage();
 		return;
 	}
 
 	if (currentContents === pluginContents) {
 		console.log(`opencode:    plugin already up to date (${resolvedFile})`);
+		await linkOpencodePackage();
 		return;
 	}
 
@@ -263,6 +266,7 @@ async function installOpencodePlugin(): Promise<void> {
 	await writeTextAtomically(resolvedFile, pluginContents);
 	console.log(`opencode:    plugin updated at ${resolvedFile}`);
 	console.log(`             backup: ${backupFile}`);
+	await linkOpencodePackage();
 }
 
 function resolveOpencodePluginFile(): string {
@@ -279,6 +283,118 @@ async function readOpencodePluginSource(): Promise<string> {
 	);
 
 	return Bun.file(pluginPath).text();
+}
+
+async function linkOpencodePackage(): Promise<void> {
+	const opencodeConfigDir = dirname(dirname(resolveOpencodePluginFile()));
+	const opencodePackageDir = join(opencodeConfigDir, "node_modules");
+	const linkedPackage = join(opencodePackageDir, "stay-alert");
+
+	try {
+		const stats = await lstat(linkedPackage);
+
+		if (stats.isSymbolicLink()) {
+			try {
+				await stat(linkedPackage);
+				return;
+			} catch (error) {
+				if (!isNodeError(error) || error.code !== "ENOENT") {
+					throw error;
+				}
+			}
+		}
+	} catch (error) {
+		if (!isNodeError(error) || error.code !== "ENOENT") {
+			throw error;
+		}
+	}
+
+	try {
+		const stats = await lstat(opencodeConfigDir);
+
+		if (!stats.isDirectory()) {
+			console.warn(
+				`opencode:    could not auto-link stay-alert into ${opencodeConfigDir}/`,
+			);
+			console.warn(
+				`             run manually: cd ${opencodeConfigDir} && bun link stay-alert`,
+			);
+			return;
+		}
+	} catch (error) {
+		if (isNodeError(error) && error.code === "ENOENT") {
+			console.warn(
+				`opencode:    could not auto-link stay-alert into ${opencodeConfigDir}/`,
+			);
+			console.warn(
+				`             run manually: cd ${opencodeConfigDir} && bun link stay-alert`,
+			);
+			return;
+		}
+
+		throw error;
+	}
+
+	const proc = Bun.spawn(["bun", "link", "stay-alert"], {
+		cwd: opencodeConfigDir,
+		stdio: ["ignore", "pipe", "pipe"],
+	});
+
+	const stdoutPromise = new Response(proc.stdout).text();
+	const stderrPromise = new Response(proc.stderr).text();
+	let exitCode: number;
+	let stderr: string;
+
+	try {
+		[exitCode, , stderr] = await Promise.all([
+			proc.exited,
+			stdoutPromise,
+			stderrPromise,
+		]);
+	} catch (error) {
+		stderr = await stderrPromise.catch(() => "");
+		console.warn(
+			`opencode:    could not auto-link stay-alert into ${opencodeConfigDir}/`,
+		);
+		if (isNodeError(error) && error.code === "ENOENT") {
+			console.warn(
+				`             run manually: cd ${opencodeConfigDir} && bun link stay-alert`,
+			);
+			return;
+		}
+
+		if (stderr.trim().length > 0) {
+			console.warn(`             ${stderr.trim()}`);
+		} else {
+			console.warn(`             ${errorMessage(error)}`);
+		}
+		console.warn(
+			`             run manually: cd ${opencodeConfigDir} && bun link stay-alert`,
+		);
+		return;
+	}
+
+	if (exitCode !== 0) {
+		console.warn(
+			`opencode:    could not auto-link stay-alert into ${opencodeConfigDir}/`,
+		);
+		if (exitCode === 127 || /not found/i.test(stderr)) {
+			console.warn(
+				`             run manually: cd ${opencodeConfigDir} && bun link stay-alert`,
+			);
+			return;
+		}
+
+		if (stderr.trim().length > 0) {
+			console.warn(`             ${stderr.trim()}`);
+		}
+		console.warn(
+			`             run manually: cd ${opencodeConfigDir} && bun link stay-alert`,
+		);
+		return;
+	}
+
+	console.log(`opencode:    linked stay-alert into ${opencodePackageDir}/`);
 }
 
 async function readOptionalFile(file: string): Promise<string | null> {
