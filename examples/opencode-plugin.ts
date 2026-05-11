@@ -1,4 +1,10 @@
-import { createContext, endTurn, notifyUser, startTurn } from "stay-alert";
+import {
+	createContext,
+	endTurn,
+	notifyUser,
+	type PredictionResult,
+	startTurn,
+} from "stay-alert";
 
 type OpencodeClient = {
 	app: {
@@ -82,10 +88,15 @@ export const StayAlertPlugin: Plugin = async ({ client }) => {
 					.map((part) => part.text)
 					.join("\n\n");
 
-				await startTurn(await ctx(), {
+				const context = await ctx();
+				const prediction = await startTurn(context, {
 					source: "opencode",
 					sessionID: input.sessionID,
 					promptText,
+				});
+				await notifyUser(context, {
+					title: "opencode",
+					message: startMessage(prediction),
 				});
 			} catch (error) {
 				await warn("prompt handler failed", error);
@@ -183,6 +194,11 @@ function formatDuration(ms: number): string {
 	const remainingSeconds = seconds % 60;
 
 	return `${minutes}m ${remainingSeconds}s`;
+}
+
+function startMessage(prediction: PredictionResult): string {
+	if (prediction.etaMs === null) return "Started";
+	return `Started, ~${formatDuration(prediction.etaMs)} expected`;
 }
 
 function isTextPart(value: unknown): value is { type: "text"; text: string } {
