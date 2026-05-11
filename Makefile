@@ -1,12 +1,13 @@
-.PHONY: help setup install uninstall init test lint format typecheck check
+.PHONY: help setup prereqs install uninstall init test lint format typecheck check
 
 SHELL_RC ?= $(HOME)/.zshrc
 
 help:
 	@echo "Available targets:"
 	@echo "  help       Show this help message"
-	@echo "  setup      One-shot: bun link + install Claude Code, opencode, and shell hooks"
+	@echo "  setup      One-shot: install prerequisites, link stay-alert, and install hooks"
 	@echo "             Override the shell rc target with: make setup SHELL_RC=/path/to/rc"
+	@echo "  prereqs    Ensure Xcode CLT, Homebrew, bun, and alerter are installed"
 	@echo "  install    Link stay-alert globally with bun link"
 	@echo "  uninstall  Remove the global bun link"
 	@echo "  init       Run stay-alert init (Claude Code + opencode by default)"
@@ -16,10 +17,20 @@ help:
 	@echo "  typecheck  Run TypeScript type checking"
 	@echo "  check      Run lint, typecheck, and test"
 
-setup:
+setup: prereqs
+	bun install
 	bun link
 	@which stay-alert
 	stay-alert init --claude-code --opencode --shell-rc "$(SHELL_RC)"
+
+prereqs:
+	@command -v xcode-select >/dev/null 2>&1 && (xcode-select -p >/dev/null 2>&1 || xcode-select --install) || true
+	@command -v brew >/dev/null 2>&1 || { \
+		echo "Homebrew is required. Install from https://brew.sh, then re-run make setup." >&2; \
+		exit 1; \
+	}
+	@command -v bun >/dev/null 2>&1 || brew install bun
+	@command -v alerter >/dev/null 2>&1 || brew install vjeantet/tap/alerter
 
 install:
 	bun link
