@@ -20,6 +20,6 @@ export async function runTest(): Promise<void> {
 	});
 
 	console.log(`Sent two notifications. If you didn't see them:
-  1. Open System Settings → Notifications and confirm Script Editor + terminal-notifier are allowed.
-  2. If sticky was missing, run: brew install terminal-notifier`);
+  1. Open System Settings → Notifications and confirm alerter is allowed.
+  2. If alerter was missing, run: brew install vjeantet/tap/alerter`);
 }

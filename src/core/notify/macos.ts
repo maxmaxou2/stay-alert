@@ -1,7 +1,7 @@
 import type { Notifier, NotifyOptions } from "./types.ts";
 
-const SPAWN_TIMEOUT_MS = 1000;
-let hasWarnedAboutMissingTerminalNotifier = false;
+const NOTIFICATION_GROUP = "stay-alert";
+let hasWarnedAboutMissingAlerter = false;
 
 export const macosNotifier: Notifier = {
 	name: "macos",
@@ -9,92 +9,53 @@ export const macosNotifier: Notifier = {
 		return process.platform === "darwin";
 	},
 	async notify(opts) {
-		if (opts.urgency === "transient") {
-			await notifyTransient(opts);
-			return;
-		}
-
-		await notifySticky(opts);
+		await notify(opts);
 	},
 };
 
-async function notifySticky(opts: NotifyOptions): Promise<void> {
-	const abortController = new AbortController();
-	const timeout = setTimeout(() => abortController.abort(), SPAWN_TIMEOUT_MS);
+async function notify(opts: NotifyOptions): Promise<void> {
 	const argv = [
-		"terminal-notifier",
-		"-title",
-		opts.title,
-		"-message",
+		"alerter",
+		"--message",
 		opts.message,
+		"--title",
+		opts.title,
+		"--group",
+		NOTIFICATION_GROUP,
 	];
 
 	if (opts.sound !== undefined) {
-		argv.push("-sound", opts.sound);
+		argv.push("--sound", opts.sound);
+	}
+
+	if (opts.urgency === "transient") {
+		argv.push("--timeout", "5");
 	}
 
 	try {
 		const proc = Bun.spawn(argv, {
-			stdout: "ignore",
-			stderr: "ignore",
-			signal: abortController.signal,
+			stdio: ["ignore", "ignore", "ignore"],
 		});
-
-		const exitCode = await proc.exited;
-		if (exitCode === 0) {
+		proc.unref();
+	} catch (error) {
+		if (isNodeError(error) && error.code === "ENOENT") {
+			warnAboutMissingAlerter();
 			return;
 		}
-	} catch (error) {
-		if (!isNodeError(error) || error.code !== "ENOENT") {
-			throw error;
-		}
-	} finally {
-		clearTimeout(timeout);
-	}
 
-	warnAboutMissingTerminalNotifier();
-	await notifyTransient(opts);
-}
-
-async function notifyTransient(opts: NotifyOptions): Promise<void> {
-	const abortController = new AbortController();
-	const timeout = setTimeout(() => abortController.abort(), SPAWN_TIMEOUT_MS);
-
-	try {
-		const proc = Bun.spawn(
-			[
-				"osascript",
-				"-e",
-				`display notification "${escapeAppleScript(opts.message)}" with title "${escapeAppleScript(opts.title)}"`,
-			],
-			{
-				stdout: "ignore",
-				stderr: "ignore",
-				signal: abortController.signal,
-			},
-		);
-
-		await proc.exited;
-	} catch {
-		// Best-effort notification delivery; ignore timeout and spawn failures.
-	} finally {
-		clearTimeout(timeout);
+		throw error;
 	}
 }
 
-function warnAboutMissingTerminalNotifier(): void {
-	if (hasWarnedAboutMissingTerminalNotifier) {
+function warnAboutMissingAlerter(): void {
+	if (hasWarnedAboutMissingAlerter) {
 		return;
 	}
 
 	console.warn(
-		"stay-alert: terminal-notifier not found; install it with `brew install terminal-notifier` for sticky notifications",
+		"stay-alert: alerter not found; install it with `brew install vjeantet/tap/alerter` for notifications",
 	);
-	hasWarnedAboutMissingTerminalNotifier = true;
-}
-
-function escapeAppleScript(s: string): string {
-	return s.replaceAll("\\", "\\\\").replaceAll('"', '\\"');
+	hasWarnedAboutMissingAlerter = true;
 }
 
 function isNodeError(error: unknown): error is NodeJS.ErrnoException {
