@@ -13,6 +13,7 @@ import {
 } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, isAbsolute, join, resolve } from "node:path";
+import { resolvePaths } from "../core/paths.ts";
 
 type InitOptions = {
 	claudeCode: boolean;
@@ -50,7 +51,7 @@ function buildShellBlock(): string {
 
 type JsonObject = Record<string, unknown>;
 
-type HookEvent = "Stop" | "Notification" | "PermissionRequest";
+type HookEvent = "Stop" | "Notification";
 
 type HookSpec = {
 	event: HookEvent;
@@ -67,11 +68,6 @@ const hookSpecs: HookSpec[] = [
 		event: "Notification",
 		command: "stay-alert claude-code-hook on-notification",
 	},
-	{
-		event: "PermissionRequest",
-		matcher: "*",
-		command: "stay-alert claude-code-hook on-permission-request",
-	},
 ];
 
 export async function runInit(argv: string[]): Promise<void> {
@@ -87,6 +83,92 @@ export async function runInit(argv: string[]): Promise<void> {
 
 	if (options.shell) {
 		await installShellHook(options.shellRc ?? defaultShellRc());
+	}
+
+	if (options.claudeCode || options.opencode) {
+		await buildFrontmostHelper();
+	}
+}
+
+async function buildFrontmostHelper(): Promise<void> {
+	if (process.platform !== "darwin") {
+		return;
+	}
+
+	const target = resolvePaths().frontmostBin;
+	const source = join(
+		import.meta.dir,
+		"..",
+		"..",
+		"src",
+		"native",
+		"frontmost.swift",
+	);
+
+	try {
+		await stat(source);
+	} catch (error) {
+		if (isNodeError(error) && error.code === "ENOENT") {
+			console.warn(`focus:       missing Swift source at ${source}; skipped`);
+			return;
+		}
+		throw error;
+	}
+
+	if (await isFrontmostUpToDate(target, source)) {
+		console.log(`focus:       helper already up to date (${target})`);
+		return;
+	}
+
+	await mkdir(dirname(target), { recursive: true });
+
+	let exitCode: number;
+	let stderr: string;
+	try {
+		const proc = Bun.spawn(["swiftc", "-O", "-o", target, source], {
+			stdio: ["ignore", "pipe", "pipe"],
+		});
+		const stderrPromise = new Response(proc.stderr).text();
+		exitCode = await proc.exited;
+		stderr = await stderrPromise;
+	} catch (error) {
+		if (isNodeError(error) && error.code === "ENOENT") {
+			console.warn(
+				"focus:       swiftc not found; falling back to osascript (install Xcode Command Line Tools to enable the fast helper)",
+			);
+			return;
+		}
+		throw error;
+	}
+
+	if (exitCode !== 0) {
+		console.warn(
+			`focus:       failed to compile frontmost helper (exit ${exitCode}); falling back to osascript`,
+		);
+		if (stderr.trim().length > 0) {
+			console.warn(`             ${stderr.trim()}`);
+		}
+		return;
+	}
+
+	console.log(`focus:       compiled helper at ${target}`);
+}
+
+async function isFrontmostUpToDate(
+	target: string,
+	source: string,
+): Promise<boolean> {
+	try {
+		const [targetStat, sourceStat] = await Promise.all([
+			stat(target),
+			stat(source),
+		]);
+		return targetStat.mtimeMs >= sourceStat.mtimeMs;
+	} catch (error) {
+		if (isNodeError(error) && error.code === "ENOENT") {
+			return false;
+		}
+		throw error;
 	}
 }
 

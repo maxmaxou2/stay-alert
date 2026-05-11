@@ -33,7 +33,7 @@ export const DEFAULT_CONFIG: Config = {
 		stickySound: "default",
 	},
 	shell: {
-		thresholdMs: 30_000,
+		thresholdMs: 15_000,
 		ignore: [
 			"vim",
 			"nvim",

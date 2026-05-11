@@ -1,13 +1,13 @@
 import { createContext, notifyUser } from "../core/index.ts";
 
-type HookEvent = "on-stop" | "on-notification" | "on-permission-request";
+type HookEvent = "on-stop" | "on-notification";
 
 export async function runClaudeCodeHook(argv: string[]): Promise<void> {
 	const [event, ...extraArgs] = argv;
 
 	if (!isHookEvent(event) || extraArgs.length > 0) {
 		throw new Error(
-			"usage: stay-alert claude-code-hook <on-stop | on-notification | on-permission-request>",
+			"usage: stay-alert claude-code-hook <on-stop | on-notification>",
 		);
 	}
 
@@ -24,12 +24,7 @@ export async function runClaudeCodeHook(argv: string[]): Promise<void> {
 		}
 
 		if (event === "on-notification") {
-			await handleOnNotification();
-			return;
-		}
-
-		if (event === "on-permission-request") {
-			await handleOnPermissionRequest(payload);
+			await handleOnNotification(payload);
 			return;
 		}
 
@@ -69,34 +64,21 @@ async function handleOnStop(): Promise<void> {
 	await notifyUser(ctx, { title: "Claude Code", message: "Done" });
 }
 
-async function handleOnNotification(): Promise<void> {
-	const ctx = await createContext();
-	await notifyUser(ctx, { title: "Claude Code", message: "Question" });
-}
-
-async function handleOnPermissionRequest(
+async function handleOnNotification(
 	payload: Record<string, unknown>,
 ): Promise<void> {
-	const toolName = payload.tool_name;
-
-	if (typeof toolName !== "string") {
-		console.warn("stay-alert: hook payload missing string tool_name");
-		return;
-	}
+	const rawMessage = payload.message;
+	const message =
+		typeof rawMessage === "string" && rawMessage.trim() !== ""
+			? rawMessage.trim()
+			: "Question";
 
 	const ctx = await createContext();
-	await notifyUser(ctx, {
-		title: "Claude Code",
-		message: `Permission required: ${toolName}`,
-	});
+	await notifyUser(ctx, { title: "Claude Code", message });
 }
 
 function isHookEvent(value: string | undefined): value is HookEvent {
-	return (
-		value === "on-stop" ||
-		value === "on-notification" ||
-		value === "on-permission-request"
-	);
+	return value === "on-stop" || value === "on-notification";
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

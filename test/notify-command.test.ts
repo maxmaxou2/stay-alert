@@ -38,13 +38,13 @@ test("skips ignored programs through env-assignment prefix", () => {
 
 test("notifies long successful command", () => {
 	const decision = decideCommandNotification(
-		{ cmd: "make build", exit: 0, durationMs: 45_000 },
+		{ cmd: "make build", exit: 0, durationMs: 20_000 },
 		shell,
 	);
 	expect(decision).toEqual({
 		notify: true,
 		title: "shell",
-		message: "make build — 45s",
+		message: "make build — 20s",
 	});
 });
 
@@ -62,7 +62,7 @@ test("notifies long failing command with exit code", () => {
 
 test("custom ignore list overrides defaults", () => {
 	const decision = decideCommandNotification(
-		{ cmd: "make build", exit: 0, durationMs: 60_000 },
+		{ cmd: "make build", exit: 0, durationMs: 20_000 },
 		{ thresholdMs: shell.thresholdMs, ignore: ["make"] },
 	);
 	expect(decision).toEqual({ notify: false, reason: "ignored" });
