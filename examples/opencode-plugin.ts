@@ -127,6 +127,20 @@ export const StayAlertPlugin: Plugin = async ({ client }) => {
 					return;
 				}
 
+				if (isQuestionAskedEvent(event)) {
+					if (
+						await isSubagentSession(client, event.properties.sessionID, warn)
+					) {
+						return;
+					}
+
+					await notifyUser(await ctx(), {
+						title: "opencode",
+						message: questionMessage(event),
+					});
+					return;
+				}
+
 				if (isToastEvent(event)) {
 					await notifyUser(await ctx(), {
 						title: event.properties.title ?? "opencode",
@@ -220,6 +234,24 @@ function isPermissionUpdatedEvent(event: OpencodeEvent): event is {
 	);
 }
 
+function isQuestionAskedEvent(event: OpencodeEvent): event is {
+	type: "question.asked";
+	properties: {
+		sessionID: string;
+		questions: Array<{ header?: unknown; question?: unknown }>;
+	};
+} {
+	return (
+		event.type === "question.asked" &&
+		typeof event.properties === "object" &&
+		event.properties !== null &&
+		"sessionID" in event.properties &&
+		typeof event.properties.sessionID === "string" &&
+		"questions" in event.properties &&
+		Array.isArray(event.properties.questions)
+	);
+}
+
 function permissionMessage(event: { properties: { title?: unknown } }): string {
 	if (
 		typeof event.properties.title === "string" &&
@@ -229,6 +261,29 @@ function permissionMessage(event: { properties: { title?: unknown } }): string {
 	}
 
 	return "Permission required";
+}
+
+function questionMessage(event: {
+	properties: { questions: Array<{ header?: unknown; question?: unknown }> };
+}): string {
+	const question = event.properties.questions[0];
+
+	if (question === undefined) {
+		return "Question waiting";
+	}
+
+	if (typeof question.header === "string" && question.header.trim() !== "") {
+		return question.header;
+	}
+
+	if (
+		typeof question.question === "string" &&
+		question.question.trim() !== ""
+	) {
+		return question.question;
+	}
+
+	return "Question waiting";
 }
 
 function errorMessage(error: unknown): string {
