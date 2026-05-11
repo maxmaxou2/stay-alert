@@ -14,6 +14,7 @@ Commands:
   stats [--last N] [--source NAME]
                               Summarize history
   tail                        Live view of completed turns
+  claude-code-hook <event>     Internal: invoked by Claude Code hooks
 
 Options:
   --help, -h                  Show this help
@@ -55,6 +56,12 @@ async function main(): Promise<void> {
 	if (command === "tail") {
 		const { runTail } = await import("./tail.ts");
 		await runTail();
+		return;
+	}
+
+	if (command === "claude-code-hook") {
+		const { runClaudeCodeHook } = await import("./claude-code-hook.ts");
+		await runClaudeCodeHook(process.argv.slice(3));
 		return;
 	}
 
