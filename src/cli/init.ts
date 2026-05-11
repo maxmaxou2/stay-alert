@@ -286,7 +286,8 @@ async function readOpencodePluginSource(): Promise<string> {
 }
 
 async function linkOpencodePackage(): Promise<void> {
-	const opencodeConfigDir = dirname(dirname(resolveOpencodePluginFile()));
+	const realPluginFile = await resolveSymlink(resolveOpencodePluginFile());
+	const opencodeConfigDir = dirname(dirname(realPluginFile));
 	const opencodePackageDir = join(opencodeConfigDir, "node_modules");
 	const linkedPackage = join(opencodePackageDir, "stay-alert");
 
@@ -449,28 +450,20 @@ async function writeTextAtomically(
 }
 
 async function resolveSymlink(file: string): Promise<string> {
-	let stats: Awaited<ReturnType<typeof lstat>>;
-
-	try {
-		stats = await lstat(file);
-	} catch (error) {
-		if (isNodeError(error) && error.code === "ENOENT") {
-			return file;
-		}
-
-		throw error;
-	}
-
-	if (!stats.isSymbolicLink()) {
-		return file;
-	}
-
 	try {
 		return await realpath(file);
 	} catch (error) {
 		if (isNodeError(error) && error.code === "ENOENT") {
-			const target = await readlink(file);
-			return isAbsolute(target) ? target : resolve(dirname(file), target);
+			try {
+				const target = await readlink(file);
+				return isAbsolute(target) ? target : resolve(dirname(file), target);
+			} catch (readlinkError) {
+				if (isNodeError(readlinkError) && readlinkError.code === "ENOENT") {
+					return file;
+				}
+
+				throw readlinkError;
+			}
 		}
 
 		throw error;
