@@ -1,5 +1,7 @@
 import { randomUUID } from "node:crypto";
+import { constants } from "node:fs";
 import { copyFile, mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
 type InitOptions = {
@@ -39,7 +41,7 @@ export async function runInit(argv: string[]): Promise<void> {
 	}
 
 	if (options.opencode) {
-		await printOpencodeSetup();
+		await installOpencodePlugin();
 	}
 }
 
@@ -80,22 +82,16 @@ async function installClaudeCodeHooks(): Promise<void> {
 		await writeJsonAtomically(settingsFile, settings);
 	}
 
-	console.log(`✓ Updated Claude Code settings: ${settingsFile}`);
+	console.log(
+		`Claude Code: ${changed ? "hooks installed" : "hooks already up to date"} (${settingsFile})`,
+	);
 	if (backupCreated) {
-		console.log(`  Backup: ${backupFile}`);
+		console.log(`             backup: ${backupFile}`);
 	}
-	console.log("  Configured hooks: UserPromptSubmit, Stop, Notification");
-	console.log("  Restart Claude Code for changes to take effect.");
 }
 
 function resolveClaudeCodeSettingsFile(): string {
-	const home = process.env.HOME;
-
-	if (!home) {
-		throw new Error("HOME must be set to resolve Claude Code settings path");
-	}
-
-	return join(home, ".claude", "settings.json");
+	return join(homedir(), ".claude", "settings.json");
 }
 
 async function readSettings(settingsFile: string): Promise<JsonObject> {
@@ -221,7 +217,34 @@ async function writeJsonAtomically(
 	}
 }
 
-async function printOpencodeSetup(): Promise<void> {
+async function installOpencodePlugin(): Promise<void> {
+	const targetFile = resolveOpencodePluginFile();
+	const backupFile = `${targetFile}.bak`;
+	const pluginContents = await readOpencodePluginSource();
+	const currentContents = await readOptionalFile(targetFile);
+
+	if (currentContents === null) {
+		await writeTextAtomically(targetFile, pluginContents);
+		console.log(`opencode:    plugin installed at ${targetFile}`);
+		return;
+	}
+
+	if (currentContents === pluginContents) {
+		console.log(`opencode:    plugin already up to date (${targetFile})`);
+		return;
+	}
+
+	await createExclusiveBackup(targetFile, backupFile);
+	await writeTextAtomically(targetFile, pluginContents);
+	console.log(`opencode:    plugin updated at ${targetFile}`);
+	console.log(`             backup: ${backupFile}`);
+}
+
+function resolveOpencodePluginFile(): string {
+	return join(homedir(), ".config", "opencode", "plugins", "stay-alert.ts");
+}
+
+async function readOpencodePluginSource(): Promise<string> {
 	const pluginPath = join(
 		import.meta.dir,
 		"..",
@@ -229,18 +252,59 @@ async function printOpencodeSetup(): Promise<void> {
 		"examples",
 		"opencode-plugin.ts",
 	);
-	const pluginContents = await Bun.file(pluginPath).text();
 
-	console.log(`opencode setup:
+	return Bun.file(pluginPath).text();
+}
 
-1. Locate your opencode config dir (usually ~/.config/opencode).
-2. Create a plugin file at <config-dir>/plugin/stay-alert.ts with the
-   contents shown below.
-3. Restart opencode.
+async function readOptionalFile(file: string): Promise<string | null> {
+	try {
+		return await readFile(file, "utf8");
+	} catch (error) {
+		if (isNodeError(error) && error.code === "ENOENT") {
+			return null;
+		}
 
-────────── plugin/stay-alert.ts ──────────
-${pluginContents.trimEnd()}
-──────────────────────────────────────────`);
+		throw error;
+	}
+}
+
+async function createExclusiveBackup(
+	sourceFile: string,
+	backupFile: string,
+): Promise<void> {
+	try {
+		await copyFile(sourceFile, backupFile, constants.COPYFILE_EXCL);
+	} catch (error) {
+		if (isNodeError(error) && error.code === "EEXIST") {
+			throw new Error(
+				`opencode plugin backup already exists at ${backupFile}; delete it before re-running stay-alert init`,
+			);
+		}
+
+		throw new Error(
+			`failed to back up opencode plugin from ${sourceFile} to ${backupFile}: ${errorMessage(error)}`,
+			{ cause: error },
+		);
+	}
+}
+
+async function writeTextAtomically(
+	file: string,
+	contents: string,
+): Promise<void> {
+	await mkdir(dirname(file), { recursive: true });
+
+	const temporaryFile = `${file}.tmp.${process.pid}.${randomUUID()}`;
+
+	try {
+		await writeFile(temporaryFile, contents);
+		await rename(temporaryFile, file);
+	} catch (error) {
+		await Bun.file(temporaryFile)
+			.delete()
+			.catch(() => {});
+		throw error;
+	}
 }
 
 function isJsonObject(value: unknown): value is JsonObject {

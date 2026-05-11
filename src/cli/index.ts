@@ -9,7 +9,7 @@ Usage:
 
 Commands:
   init [--claude-code] [--opencode]
-                              Install hooks / print setup snippets
+                              Install Claude Code hooks / opencode plugin
   test                        Fire one transient + one sticky notification
   stats [--last N] [--source NAME]
                               Summarize history
