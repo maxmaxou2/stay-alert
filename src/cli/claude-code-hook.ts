@@ -1,4 +1,3 @@
-import type { PredictionResult } from "../core/index.ts";
 import {
 	createContext,
 	endTurn,
@@ -95,14 +94,10 @@ async function handleOnPrompt(payload: Record<string, unknown>): Promise<void> {
 	}
 
 	const ctx = await createContext();
-	const prediction = await startTurn(ctx, {
+	await startTurn(ctx, {
 		source: "claude-code",
 		sessionID,
 		promptText: prompt,
-	});
-	await notifyUser(ctx, {
-		title: "Claude Code",
-		message: startMessage(prediction),
 	});
 }
 
@@ -177,11 +172,6 @@ function isHookEvent(value: string | undefined): value is HookEvent {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function startMessage(prediction: PredictionResult): string {
-	if (prediction.etaMs === null) return "Started";
-	return `Started, ~${formatDuration(prediction.etaMs)} expected`;
 }
 
 function errorMessage(error: unknown): string {
