@@ -17,15 +17,40 @@ import { dirname, isAbsolute, join, resolve } from "node:path";
 type InitOptions = {
 	claudeCode: boolean;
 	opencode: boolean;
+	shell: boolean;
+	shellRc: string | null;
 };
+
+const SHELL_BLOCK_BEGIN = "# stay-alert begin (managed — do not edit)";
+const SHELL_BLOCK_END = "# stay-alert end";
+
+const SHELL_BLOCK_BODY = `if [[ -n \${ZSH_VERSION-} ]] && command -v stay-alert >/dev/null 2>&1; then
+  zmodload zsh/datetime 2>/dev/null
+  typeset -g __stay_alert_start=0
+  typeset -g __stay_alert_cmd=""
+  __stay_alert_preexec() {
+    __stay_alert_start=$EPOCHREALTIME
+    __stay_alert_cmd=$1
+  }
+  __stay_alert_precmd() {
+    local ec=$?
+    [[ -z $__stay_alert_cmd ]] && return
+    local dur_ms=$(( (EPOCHREALTIME - __stay_alert_start) * 1000 ))
+    stay-alert notify-command --cmd "$__stay_alert_cmd" --exit $ec --duration-ms \${dur_ms%.*} >/dev/null 2>&1 &!
+    __stay_alert_cmd=""
+  }
+  autoload -Uz add-zsh-hook
+  add-zsh-hook preexec __stay_alert_preexec
+  add-zsh-hook precmd __stay_alert_precmd
+fi`;
+
+function buildShellBlock(): string {
+	return `${SHELL_BLOCK_BEGIN}\n${SHELL_BLOCK_BODY}\n${SHELL_BLOCK_END}\n`;
+}
 
 type JsonObject = Record<string, unknown>;
 
-type HookEvent =
-	| "UserPromptSubmit"
-	| "Stop"
-	| "Notification"
-	| "PermissionRequest";
+type HookEvent = "Stop" | "Notification" | "PermissionRequest";
 
 type HookSpec = {
 	event: HookEvent;
@@ -34,10 +59,6 @@ type HookSpec = {
 };
 
 const hookSpecs: HookSpec[] = [
-	{
-		event: "UserPromptSubmit",
-		command: "stay-alert claude-code-hook on-prompt",
-	},
 	{
 		event: "Stop",
 		command: "stay-alert claude-code-hook on-stop",
@@ -63,13 +84,21 @@ export async function runInit(argv: string[]): Promise<void> {
 	if (options.opencode) {
 		await installOpencodePlugin();
 	}
+
+	if (options.shell) {
+		await installShellHook(options.shellRc ?? defaultShellRc());
+	}
 }
 
 function parseArgs(argv: string[]): InitOptions {
 	let claudeCode = false;
 	let opencode = false;
+	let shell = false;
+	let shellRc: string | null = null;
 
-	for (const arg of argv) {
+	for (let i = 0; i < argv.length; i += 1) {
+		const arg = argv[i];
+
 		if (arg === "--claude-code") {
 			claudeCode = true;
 			continue;
@@ -80,14 +109,108 @@ function parseArgs(argv: string[]): InitOptions {
 			continue;
 		}
 
+		if (arg === "--shell") {
+			shell = true;
+			continue;
+		}
+
+		if (arg === "--shell-rc") {
+			const value = argv[++i];
+			if (value === undefined) {
+				throw new Error("--shell-rc requires a path");
+			}
+			shellRc = value;
+			shell = true;
+			continue;
+		}
+
+		if (arg?.startsWith("--shell-rc=")) {
+			shellRc = arg.slice("--shell-rc=".length);
+			shell = true;
+			continue;
+		}
+
 		throw new Error(`unknown flag: ${arg}`);
 	}
 
-	if (!claudeCode && !opencode) {
-		return { claudeCode: true, opencode: true };
+	if (!claudeCode && !opencode && !shell) {
+		return {
+			claudeCode: true,
+			opencode: true,
+			shell: false,
+			shellRc: null,
+		};
 	}
 
-	return { claudeCode, opencode };
+	return { claudeCode, opencode, shell, shellRc };
+}
+
+function defaultShellRc(): string {
+	return join(homedir(), ".zshrc");
+}
+
+async function installShellHook(rcPath: string): Promise<void> {
+	const expandedRc = expandUser(rcPath);
+	const resolvedRc = await resolveSymlink(expandedRc);
+	const existing = await readOptionalFile(resolvedRc);
+	const desiredBlock = buildShellBlock();
+	const next = mergeShellBlock(existing ?? "", desiredBlock);
+	const displayPath =
+		resolvedRc === expandedRc ? resolvedRc : `${expandedRc} → ${resolvedRc}`;
+
+	if (existing === next) {
+		console.log(`shell:       hook already up to date (${displayPath})`);
+		return;
+	}
+
+	if (existing !== null) {
+		const backupFile = `${resolvedRc}.stay-alert.bak`;
+		await createBackupIfNeeded(resolvedRc, backupFile);
+		console.log(`shell:       hook updated in ${displayPath}`);
+		console.log(`             backup: ${backupFile}`);
+	} else {
+		console.log(`shell:       hook installed in ${displayPath}`);
+	}
+
+	await writeTextAtomically(resolvedRc, next);
+	console.log(`             open a new shell or run: source ${expandedRc}`);
+}
+
+function expandUser(path: string): string {
+	if (path === "~") {
+		return homedir();
+	}
+
+	if (path.startsWith("~/")) {
+		return join(homedir(), path.slice(2));
+	}
+
+	return path;
+}
+
+function mergeShellBlock(existing: string, block: string): string {
+	const beginIdx = existing.indexOf(SHELL_BLOCK_BEGIN);
+
+	if (beginIdx === -1) {
+		const separator = existing === "" || existing.endsWith("\n") ? "" : "\n";
+		const leadingNewline = existing === "" ? "" : "\n";
+		return `${existing}${separator}${leadingNewline}${block}`;
+	}
+
+	const endMarkerIdx = existing.indexOf(SHELL_BLOCK_END, beginIdx);
+
+	if (endMarkerIdx === -1) {
+		throw new Error(
+			`found stay-alert begin marker in ${SHELL_BLOCK_BEGIN} block but no matching end marker — fix the file manually`,
+		);
+	}
+
+	const endIdx = endMarkerIdx + SHELL_BLOCK_END.length;
+	const trailingNewline = existing[endIdx] === "\n" ? 1 : 0;
+	const before = existing.slice(0, beginIdx);
+	const after = existing.slice(endIdx + trailingNewline);
+
+	return `${before}${block}${after}`;
 }
 
 async function installClaudeCodeHooks(): Promise<void> {

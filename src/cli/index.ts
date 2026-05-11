@@ -2,19 +2,19 @@
 
 import pkg from "../../package.json" with { type: "json" };
 
-const helpText = `stay-alert — predict and notify when your AI coding agent needs you
+const helpText = `stay-alert — notify when your AI coding agent or long-running command needs you
 
 Usage:
   stay-alert <command> [options]
 
 Commands:
-  init [--claude-code] [--opencode]
-                              Install Claude Code hooks / opencode plugin
+  init [--claude-code] [--opencode] [--shell] [--shell-rc PATH]
+                              Install Claude Code hooks / opencode plugin / shell hook
+                              --shell-rc PATH overrides the default ~/.zshrc target
   test                        Fire one transient + one sticky notification
-  stats [--last N] [--source NAME]
-                              Summarize history
-  tail                        Live view of completed turns
-  claude-code-hook <event>     Internal: invoked by Claude Code hooks
+  claude-code-hook <event>    Internal: invoked by Claude Code hooks
+  notify-command --cmd C --exit N --duration-ms N
+                              Internal: invoked by the shell hook on each command
 
 Options:
   --help, -h                  Show this help
@@ -47,21 +47,15 @@ async function main(): Promise<void> {
 		return;
 	}
 
-	if (command === "stats") {
-		const { runStats } = await import("./stats.ts");
-		await runStats(process.argv.slice(3));
-		return;
-	}
-
-	if (command === "tail") {
-		const { runTail } = await import("./tail.ts");
-		await runTail();
-		return;
-	}
-
 	if (command === "claude-code-hook") {
 		const { runClaudeCodeHook } = await import("./claude-code-hook.ts");
 		await runClaudeCodeHook(process.argv.slice(3));
+		return;
+	}
+
+	if (command === "notify-command") {
+		const { runNotifyCommand } = await import("./notify-command.ts");
+		await runNotifyCommand(process.argv.slice(3));
 		return;
 	}
 

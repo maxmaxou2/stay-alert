@@ -1,23 +1,13 @@
-import {
-	createContext,
-	endTurn,
-	notifyUser,
-	startTurn,
-} from "../core/index.ts";
-import { formatDuration } from "./_format.ts";
+import { createContext, notifyUser } from "../core/index.ts";
 
-type HookEvent =
-	| "on-prompt"
-	| "on-stop"
-	| "on-notification"
-	| "on-permission-request";
+type HookEvent = "on-stop" | "on-notification" | "on-permission-request";
 
 export async function runClaudeCodeHook(argv: string[]): Promise<void> {
 	const [event, ...extraArgs] = argv;
 
 	if (!isHookEvent(event) || extraArgs.length > 0) {
 		throw new Error(
-			"usage: stay-alert claude-code-hook <on-prompt | on-stop | on-notification | on-permission-request>",
+			"usage: stay-alert claude-code-hook <on-stop | on-notification | on-permission-request>",
 		);
 	}
 
@@ -28,18 +18,13 @@ export async function runClaudeCodeHook(argv: string[]): Promise<void> {
 			return;
 		}
 
-		if (event === "on-prompt") {
-			await handleOnPrompt(payload);
-			return;
-		}
-
 		if (event === "on-stop") {
-			await handleOnStop(payload);
+			await handleOnStop();
 			return;
 		}
 
 		if (event === "on-notification") {
-			await handleOnNotification(payload);
+			await handleOnNotification();
 			return;
 		}
 
@@ -79,69 +64,14 @@ async function readPayload(): Promise<Record<string, unknown> | null> {
 	return payload;
 }
 
-async function handleOnPrompt(payload: Record<string, unknown>): Promise<void> {
-	const sessionID = payload.session_id;
-	const prompt = payload.prompt;
-
-	if (typeof sessionID !== "string") {
-		console.warn("stay-alert: hook payload missing string session_id");
-		return;
-	}
-
-	if (typeof prompt !== "string") {
-		console.warn("stay-alert: hook payload missing string prompt");
-		return;
-	}
-
+async function handleOnStop(): Promise<void> {
 	const ctx = await createContext();
-	await startTurn(ctx, {
-		source: "claude-code",
-		sessionID,
-		promptText: prompt,
-	});
+	await notifyUser(ctx, { title: "Claude Code", message: "Done" });
 }
 
-async function handleOnStop(payload: Record<string, unknown>): Promise<void> {
-	const sessionID = payload.session_id;
-
-	if (typeof sessionID !== "string") {
-		console.warn("stay-alert: hook payload missing string session_id");
-		return;
-	}
-
+async function handleOnNotification(): Promise<void> {
 	const ctx = await createContext();
-	const turn = await endTurn(ctx, {
-		source: "claude-code",
-		sessionID,
-		endReason: "idle",
-	});
-
-	if (turn === null) {
-		return;
-	}
-
-	await notifyUser(ctx, {
-		title: "Claude Code",
-		message: `Done in ${formatDuration(turn.durationMs ?? 0)}`,
-	});
-}
-
-async function handleOnNotification(
-	payload: Record<string, unknown>,
-): Promise<void> {
-	const message = payload.message;
-	const title = payload.title;
-
-	if (typeof message !== "string") {
-		console.warn("stay-alert: hook payload missing string message");
-		return;
-	}
-
-	const ctx = await createContext();
-	await notifyUser(ctx, {
-		title: typeof title === "string" ? title : "Claude Code",
-		message,
-	});
+	await notifyUser(ctx, { title: "Claude Code", message: "Question" });
 }
 
 async function handleOnPermissionRequest(
@@ -163,7 +93,6 @@ async function handleOnPermissionRequest(
 
 function isHookEvent(value: string | undefined): value is HookEvent {
 	return (
-		value === "on-prompt" ||
 		value === "on-stop" ||
 		value === "on-notification" ||
 		value === "on-permission-request"

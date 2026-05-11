@@ -30,8 +30,7 @@
 		"LICENSE"
 	],
 	"dependencies": {
-		"smol-toml": "^1.6.1",
-		"ulid": "^3.0.2"
+		"smol-toml": "^1.6.1"
 	},
 	"devDependencies": {
 		"@biomejs/biome": "^2.4.15",

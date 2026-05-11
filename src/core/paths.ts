@@ -4,19 +4,13 @@ import { join } from "node:path";
 export type Paths = {
 	configDir: string;
 	configFile: string;
-	dataDir: string;
-	historyFile: string;
-	stateFile: string;
 };
 
 export function resolvePaths(env: NodeJS.ProcessEnv = process.env): Paths {
 	const stayAlertHome = env.STAY_ALERT_HOME;
 
 	if (stayAlertHome) {
-		return buildPaths(
-			join(stayAlertHome, "config"),
-			join(stayAlertHome, "data"),
-		);
+		return buildPaths(join(stayAlertHome, "config"));
 	}
 
 	const home = env.HOME;
@@ -29,24 +23,17 @@ export function resolvePaths(env: NodeJS.ProcessEnv = process.env): Paths {
 		env.XDG_CONFIG_HOME ?? join(home, ".config"),
 		"stay-alert",
 	);
-	const dataDir = join(
-		env.XDG_DATA_HOME ?? join(home, ".local", "share"),
-		"stay-alert",
-	);
 
-	return buildPaths(configDir, dataDir);
+	return buildPaths(configDir);
 }
 
 export async function ensureDir(dir: string): Promise<void> {
 	await mkdir(dir, { recursive: true });
 }
 
-function buildPaths(configDir: string, dataDir: string): Paths {
+function buildPaths(configDir: string): Paths {
 	return {
 		configDir,
 		configFile: join(configDir, "config.toml"),
-		dataDir,
-		historyFile: join(dataDir, "history.jsonl"),
-		stateFile: join(dataDir, "state.json"),
 	};
 }

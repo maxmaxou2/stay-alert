@@ -4,10 +4,6 @@ import { parse } from "smol-toml";
 import type { Paths } from "./paths.ts";
 
 export type Config = {
-	predictor: {
-		sampleSize: number;
-		timeoutMs: number;
-	};
 	focus: {
 		terminalApps: string[];
 	};
@@ -15,13 +11,13 @@ export type Config = {
 		transientSound: string | null;
 		stickySound: string;
 	};
+	shell: {
+		thresholdMs: number;
+		ignore: string[];
+	};
 };
 
 export const DEFAULT_CONFIG: Config = {
-	predictor: {
-		sampleSize: 20,
-		timeoutMs: 1000,
-	},
 	focus: {
 		terminalApps: [
 			"Ghostty",
@@ -35,6 +31,30 @@ export const DEFAULT_CONFIG: Config = {
 	notifications: {
 		transientSound: null,
 		stickySound: "default",
+	},
+	shell: {
+		thresholdMs: 30_000,
+		ignore: [
+			"vim",
+			"nvim",
+			"vi",
+			"emacs",
+			"nano",
+			"less",
+			"more",
+			"man",
+			"ssh",
+			"tmux",
+			"screen",
+			"htop",
+			"top",
+			"btop",
+			"fzf",
+			"watch",
+			"tail",
+			"claude",
+			"opencode",
+		],
 	},
 };
 
@@ -67,33 +87,52 @@ export async function loadConfig(paths: Paths): Promise<Config> {
 
 function mergeConfig(userConfig: TomlTableWithoutBigInt): Config {
 	return {
-		predictor: mergePredictorConfig(userConfig.predictor),
 		focus: mergeFocusConfig(userConfig.focus),
 		notifications: mergeNotificationsConfig(userConfig.notifications),
+		shell: mergeShellConfig(userConfig.shell),
 	};
 }
 
-function mergePredictorConfig(
+function mergeShellConfig(
 	value: TomlValueWithoutBigInt | undefined,
-): Config["predictor"] {
+): Config["shell"] {
 	if (value === undefined) {
-		return { ...DEFAULT_CONFIG.predictor };
+		return {
+			thresholdMs: DEFAULT_CONFIG.shell.thresholdMs,
+			ignore: [...DEFAULT_CONFIG.shell.ignore],
+		};
 	}
 
-	const table = requireTable("predictor", value);
+	const table = requireTable("shell", value);
 
 	return {
-		sampleSize: positiveIntegerOrDefault(
-			"predictor.sampleSize",
-			table.sampleSize,
-			DEFAULT_CONFIG.predictor.sampleSize,
+		thresholdMs: positiveIntegerOrDefault(
+			"shell.thresholdMs",
+			table.thresholdMs,
+			DEFAULT_CONFIG.shell.thresholdMs,
 		),
-		timeoutMs: positiveIntegerOrDefault(
-			"predictor.timeoutMs",
-			table.timeoutMs,
-			DEFAULT_CONFIG.predictor.timeoutMs,
+		ignore: stringArrayOrDefault(
+			"shell.ignore",
+			table.ignore,
+			DEFAULT_CONFIG.shell.ignore,
 		),
 	};
+}
+
+function positiveIntegerOrDefault(
+	path: string,
+	value: TomlValueWithoutBigInt | undefined,
+	fallback: number,
+): number {
+	if (value === undefined) {
+		return fallback;
+	}
+
+	if (typeof value !== "number" || !Number.isInteger(value) || value <= 0) {
+		throw new Error(`${path} must be a positive integer`);
+	}
+
+	return value;
 }
 
 function mergeFocusConfig(
@@ -143,22 +182,6 @@ function requireTable(
 ): TomlTableWithoutBigInt {
 	if (!isPlainTable(value)) {
 		throw new Error(`${path} must be a table`);
-	}
-
-	return value;
-}
-
-function positiveIntegerOrDefault(
-	path: string,
-	value: TomlValueWithoutBigInt | undefined,
-	fallback: number,
-): number {
-	if (value === undefined) {
-		return fallback;
-	}
-
-	if (typeof value !== "number" || !Number.isInteger(value) || value <= 0) {
-		throw new Error(`${path} must be a positive integer`);
 	}
 
 	return value;
