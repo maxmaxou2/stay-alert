@@ -10,6 +10,11 @@ type OpencodeClient = {
 			};
 		}): Promise<unknown>;
 	};
+	session: {
+		get(input: {
+			path: { id: string };
+		}): Promise<{ data?: { parentID?: string } }>;
+	};
 };
 
 type ChatMessageInput = {
@@ -68,6 +73,10 @@ export const StayAlertPlugin: Plugin = async ({ client }) => {
 	return {
 		"chat.message": async (input, output) => {
 			try {
+				if (await isSubagentSession(client, input.sessionID, warn)) {
+					return;
+				}
+
 				const promptText = output.parts
 					.filter(isTextPart)
 					.map((part) => part.text)
@@ -86,6 +95,12 @@ export const StayAlertPlugin: Plugin = async ({ client }) => {
 		event: async ({ event }) => {
 			try {
 				if (isSessionIdleEvent(event)) {
+					if (
+						await isSubagentSession(client, event.properties.sessionID, warn)
+					) {
+						return;
+					}
+
 					const context = await ctx();
 					const turn = await endTurn(context, {
 						source: "opencode",
@@ -104,6 +119,14 @@ export const StayAlertPlugin: Plugin = async ({ client }) => {
 					return;
 				}
 
+				if (isPermissionUpdatedEvent(event)) {
+					await notifyUser(await ctx(), {
+						title: "opencode",
+						message: permissionMessage(event),
+					});
+					return;
+				}
+
 				if (isToastEvent(event)) {
 					await notifyUser(await ctx(), {
 						title: event.properties.title ?? "opencode",
@@ -116,6 +139,20 @@ export const StayAlertPlugin: Plugin = async ({ client }) => {
 		},
 	};
 };
+
+async function isSubagentSession(
+	client: OpencodeClient,
+	sessionID: string,
+	warn: (message: string, error?: unknown) => Promise<void>,
+): Promise<boolean> {
+	try {
+		const session = await client.session.get({ path: { id: sessionID } });
+		return session.data?.parentID != null;
+	} catch (error) {
+		await warn("failed to inspect opencode session", error);
+		return false;
+	}
+}
 
 function formatDuration(ms: number): string {
 	if (ms < 1_000) {
@@ -170,6 +207,28 @@ function isToastEvent(event: OpencodeEvent): event is {
 		"message" in event.properties &&
 		typeof event.properties.message === "string"
 	);
+}
+
+function isPermissionUpdatedEvent(event: OpencodeEvent): event is {
+	type: "permission.updated";
+	properties: { title?: unknown };
+} {
+	return (
+		event.type === "permission.updated" &&
+		typeof event.properties === "object" &&
+		event.properties !== null
+	);
+}
+
+function permissionMessage(event: { properties: { title?: unknown } }): string {
+	if (
+		typeof event.properties.title === "string" &&
+		event.properties.title.trim() !== ""
+	) {
+		return event.properties.title;
+	}
+
+	return "Permission required";
 }
 
 function errorMessage(error: unknown): string {
