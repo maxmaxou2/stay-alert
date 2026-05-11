@@ -1,8 +1,17 @@
 import { randomUUID } from "node:crypto";
 import { constants } from "node:fs";
-import { copyFile, mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import {
+	copyFile,
+	lstat,
+	mkdir,
+	readFile,
+	readlink,
+	realpath,
+	rename,
+	writeFile,
+} from "node:fs/promises";
 import { homedir } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname, isAbsolute, join, resolve } from "node:path";
 
 type InitOptions = {
 	claudeCode: boolean;
@@ -82,18 +91,22 @@ function parseArgs(argv: string[]): InitOptions {
 
 async function installClaudeCodeHooks(): Promise<void> {
 	const settingsFile = resolveClaudeCodeSettingsFile();
-	const backupFile = `${settingsFile}.stay-alert.bak`;
-	const settings = await readSettings(settingsFile);
+	const resolvedSettingsFile = await resolveSymlink(settingsFile);
+	const backupFile = `${resolvedSettingsFile}.stay-alert.bak`;
+	const settings = await readSettings(resolvedSettingsFile);
 	const changed = mergeHooks(settings);
 	let backupCreated = false;
 
 	if (changed) {
-		backupCreated = await createBackupIfNeeded(settingsFile, backupFile);
-		await writeJsonAtomically(settingsFile, settings);
+		backupCreated = await createBackupIfNeeded(
+			resolvedSettingsFile,
+			backupFile,
+		);
+		await writeJsonAtomically(resolvedSettingsFile, settings);
 	}
 
 	console.log(
-		`Claude Code: ${changed ? "hooks installed" : "hooks already up to date"} (${settingsFile})`,
+		`Claude Code: ${changed ? "hooks installed" : "hooks already up to date"} (${resolvedSettingsFile})`,
 	);
 	if (backupCreated) {
 		console.log(`             backup: ${backupFile}`);
@@ -230,24 +243,25 @@ async function writeJsonAtomically(
 
 async function installOpencodePlugin(): Promise<void> {
 	const targetFile = resolveOpencodePluginFile();
-	const backupFile = `${targetFile}.bak`;
+	const resolvedFile = await resolveSymlink(targetFile);
+	const backupFile = `${resolvedFile}.bak`;
 	const pluginContents = await readOpencodePluginSource();
-	const currentContents = await readOptionalFile(targetFile);
+	const currentContents = await readOptionalFile(resolvedFile);
 
 	if (currentContents === null) {
-		await writeTextAtomically(targetFile, pluginContents);
-		console.log(`opencode:    plugin installed at ${targetFile}`);
+		await writeTextAtomically(resolvedFile, pluginContents);
+		console.log(`opencode:    plugin installed at ${resolvedFile}`);
 		return;
 	}
 
 	if (currentContents === pluginContents) {
-		console.log(`opencode:    plugin already up to date (${targetFile})`);
+		console.log(`opencode:    plugin already up to date (${resolvedFile})`);
 		return;
 	}
 
-	await createExclusiveBackup(targetFile, backupFile);
-	await writeTextAtomically(targetFile, pluginContents);
-	console.log(`opencode:    plugin updated at ${targetFile}`);
+	await createExclusiveBackup(resolvedFile, backupFile);
+	await writeTextAtomically(resolvedFile, pluginContents);
+	console.log(`opencode:    plugin updated at ${resolvedFile}`);
 	console.log(`             backup: ${backupFile}`);
 }
 
@@ -314,6 +328,35 @@ async function writeTextAtomically(
 		await Bun.file(temporaryFile)
 			.delete()
 			.catch(() => {});
+		throw error;
+	}
+}
+
+async function resolveSymlink(file: string): Promise<string> {
+	let stats: Awaited<ReturnType<typeof lstat>>;
+
+	try {
+		stats = await lstat(file);
+	} catch (error) {
+		if (isNodeError(error) && error.code === "ENOENT") {
+			return file;
+		}
+
+		throw error;
+	}
+
+	if (!stats.isSymbolicLink()) {
+		return file;
+	}
+
+	try {
+		return await realpath(file);
+	} catch (error) {
+		if (isNodeError(error) && error.code === "ENOENT") {
+			const target = await readlink(file);
+			return isAbsolute(target) ? target : resolve(dirname(file), target);
+		}
+
 		throw error;
 	}
 }
