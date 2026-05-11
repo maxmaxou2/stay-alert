@@ -8,11 +8,12 @@ Usage:
   stay-alert <command> [options]
 
 Commands:
+  init [--claude-code] [--opencode]
+                              Install hooks / print setup snippets
   test                        Fire one transient + one sticky notification
   stats [--last N] [--source NAME]
                               Summarize history
   tail                        Live view of completed turns
-  init                        (coming soon)
 
 Options:
   --help, -h                  Show this help
@@ -36,6 +37,12 @@ async function main(): Promise<void> {
 	if (command === "test") {
 		const { runTest } = await import("./test.ts");
 		await runTest();
+		return;
+	}
+
+	if (command === "init") {
+		const { runInit } = await import("./init.ts");
+		await runInit(process.argv.slice(3));
 		return;
 	}
 
