@@ -8,14 +8,15 @@ Usage:
   stay-alert <command> [options]
 
 Commands:
-  test               Fire one transient + one sticky notification
-  init               (coming soon)
-  stats              (coming soon)
-  tail               (coming soon)
+  test                        Fire one transient + one sticky notification
+  stats [--last N] [--source NAME]
+                              Summarize history
+  tail                        Live view of completed turns
+  init                        (coming soon)
 
 Options:
-  --help, -h         Show this help
-  --version, -v      Show version
+  --help, -h                  Show this help
+  --version, -v               Show version
 
 Set STAY_ALERT_DEBUG=1 for verbose error output.`;
 
@@ -35,6 +36,18 @@ async function main(): Promise<void> {
 	if (command === "test") {
 		const { runTest } = await import("./test.ts");
 		await runTest();
+		return;
+	}
+
+	if (command === "stats") {
+		const { runStats } = await import("./stats.ts");
+		await runStats(process.argv.slice(3));
+		return;
+	}
+
+	if (command === "tail") {
+		const { runTail } = await import("./tail.ts");
+		await runTail();
 		return;
 	}
 
