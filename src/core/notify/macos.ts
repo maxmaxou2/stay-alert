@@ -38,6 +38,10 @@ async function notify(opts: NotifyOptions): Promise<void> {
 		argv.push("--host", opts.senderBundleId);
 	}
 
+	if (opts.tmuxPane !== undefined && opts.tmuxPane !== "") {
+		argv.push("--pane", opts.tmuxPane);
+	}
+
 	if (opts.sound !== undefined) {
 		argv.push("--sound", opts.sound);
 	}

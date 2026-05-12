@@ -44,6 +44,8 @@ export async function notifyUser(
 			? (ctx.config.notifications.transientSound ?? undefined)
 			: ctx.config.notifications.stickySound;
 
+	const tmuxPane = process.env.TMUX_PANE;
+
 	await notify({
 		title: opts.title,
 		message: opts.message,
@@ -51,5 +53,6 @@ export async function notifyUser(
 		urgency,
 		...(opts.iconPath ? { appIconPath: opts.iconPath } : {}),
 		...(hostBundleId ? { senderBundleId: hostBundleId } : {}),
+		...(tmuxPane ? { tmuxPane } : {}),
 	});
 }

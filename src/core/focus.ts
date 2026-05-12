@@ -71,10 +71,29 @@ export async function isTerminalFocused(): Promise<FocusResult> {
 		getFrontmostBundleId(),
 	]);
 
-	return {
-		focused: host !== null && front !== null && host === front,
-		hostBundleId: host,
-	};
+	if (host === null || front === null || host !== front) {
+		return { focused: false, hostBundleId: host };
+	}
+
+	const agentPane = process.env.TMUX_PANE;
+	if (agentPane !== undefined && agentPane !== "") {
+		const activePane = await currentTmuxPaneId();
+		if (activePane !== null && activePane !== agentPane) {
+			return { focused: false, hostBundleId: host };
+		}
+	}
+
+	return { focused: true, hostBundleId: host };
+}
+
+async function currentTmuxPaneId(): Promise<string | null> {
+	if (!process.env.TMUX) {
+		return null;
+	}
+	return runProcess(
+		["tmux", "display", "-p", "#{pane_id}"],
+		HELPER_TIMEOUT_MS,
+	);
 }
 
 export async function getHostBundleId(): Promise<string | null> {

@@ -8,6 +8,7 @@ export type NotifyOptions = {
 	subtitle?: string;
 	appIconPath?: string;
 	senderBundleId?: string;
+	tmuxPane?: string;
 	sound?: string;
 	urgency: NotifyUrgency;
 };

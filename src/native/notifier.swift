@@ -3,6 +3,7 @@ import Foundation
 import UserNotifications
 
 let WATCHDOG_SECONDS: TimeInterval = 4 * 3600
+let PANE_POLL_INTERVAL: TimeInterval = 1.0
 
 var title = ""
 var subtitle: String?
@@ -12,6 +13,7 @@ var soundName: String?
 var sticky = false
 var transientSeconds: Double = 5
 var hostBundle: String?
+var tmuxPane: String?
 
 var i = 1
 let args = CommandLine.arguments
@@ -39,6 +41,9 @@ while i < args.count {
 	case "--host":
 		hostBundle = next(1)
 		i += 2
+	case "--pane":
+		tmuxPane = next(1)
+		i += 2
 	case "--sticky":
 		sticky = true
 		i += 1
@@ -51,6 +56,81 @@ while i < args.count {
 		i += 1
 	}
 }
+
+let identifier = UUID().uuidString
+let center = UNUserNotificationCenter.current()
+
+func dismissAndExit() {
+	center.removeDeliveredNotifications(withIdentifiers: [identifier])
+	exit(0)
+}
+
+func currentTmuxPane() -> String? {
+	let task = Process()
+	task.launchPath = "/usr/bin/env"
+	task.arguments = ["tmux", "display", "-p", "#{pane_id}"]
+	let pipe = Pipe()
+	task.standardOutput = pipe
+	task.standardError = FileHandle.nullDevice
+	do {
+		try task.run()
+		task.waitUntilExit()
+	} catch {
+		return nil
+	}
+	let data = pipe.fileHandleForReading.readDataToEndOfFile()
+	let out = String(data: data, encoding: .utf8)?
+		.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+	return out.isEmpty ? nil : out
+}
+
+final class Watcher {
+	let host: String
+	let pane: String?
+	var timer: DispatchSourceTimer?
+
+	init(host: String, pane: String?) {
+		self.host = host
+		self.pane = pane
+	}
+
+	func onActivation(_ bundleId: String?) {
+		guard let bundleId = bundleId else { return }
+		if bundleId == host {
+			handleHostFrontmost()
+		} else {
+			stopPolling()
+		}
+	}
+
+	private func handleHostFrontmost() {
+		guard let targetPane = pane else {
+			dismissAndExit()
+			return
+		}
+		startPolling(targetPane: targetPane)
+	}
+
+	private func startPolling(targetPane: String) {
+		if timer != nil { return }
+		let t = DispatchSource.makeTimerSource(queue: .main)
+		t.schedule(deadline: .now(), repeating: PANE_POLL_INTERVAL)
+		t.setEventHandler {
+			if let now = currentTmuxPane(), now == targetPane {
+				dismissAndExit()
+			}
+		}
+		t.resume()
+		timer = t
+	}
+
+	private func stopPolling() {
+		timer?.cancel()
+		timer = nil
+	}
+}
+
+let watcher: Watcher? = hostBundle.map { Watcher(host: $0, pane: tmuxPane) }
 
 final class Delegate: NSObject, UNUserNotificationCenterDelegate {
 	let hostBundle: String?
@@ -85,11 +165,24 @@ final class Delegate: NSObject, UNUserNotificationCenterDelegate {
 	}
 }
 
-let center = UNUserNotificationCenter.current()
 let delegate = Delegate(hostBundle: hostBundle)
 center.delegate = delegate
 
-let identifier = UUID().uuidString
+if watcher != nil {
+	NSWorkspace.shared.notificationCenter.addObserver(
+		forName: NSWorkspace.didActivateApplicationNotification,
+		object: nil,
+		queue: .main
+	) { note in
+		let app = note.userInfo?[NSWorkspace.applicationUserInfoKey]
+			as? NSRunningApplication
+		watcher?.onActivation(app?.bundleIdentifier)
+	}
+
+	if let front = NSWorkspace.shared.frontmostApplication?.bundleIdentifier {
+		watcher?.onActivation(front)
+	}
+}
 
 @MainActor
 func postNotification() async {
@@ -152,8 +245,7 @@ func postNotification() async {
 
 	if !sticky {
 		DispatchQueue.main.asyncAfter(deadline: .now() + transientSeconds) {
-			center.removeDeliveredNotifications(withIdentifiers: [identifier])
-			exit(0)
+			dismissAndExit()
 		}
 	}
 
