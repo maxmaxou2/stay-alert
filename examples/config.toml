@@ -2,7 +2,7 @@
 
 # Lists terminal applications considered active coding-agent hosts.
 [focus]
-terminalApps = ["Ghostty", "iTerm2", "Terminal", "Alacritty", "kitty", "WezTerm"]
+terminalApps = ["Ghostty", "iTerm2", "Terminal", "Alacritty", "kitty", "WezTerm", "Hyper", "Tabby", "Warp", "Code", "Code - Insiders", "VSCodium", "Cursor", "Windsurf", "Zed", "Trae"]
 
 # Controls sounds used for transient and sticky notifications.
 [notifications]
