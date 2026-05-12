@@ -65,6 +65,35 @@ func dismissAndExit() {
 	exit(0)
 }
 
+func runTmux(_ args: [String]) {
+	let task = Process()
+	task.launchPath = "/usr/bin/env"
+	task.arguments = ["tmux"] + args
+	task.standardOutput = FileHandle.nullDevice
+	task.standardError = FileHandle.nullDevice
+	try? task.run()
+	task.waitUntilExit()
+}
+
+func tmuxWindowId(forPane pane: String) -> String? {
+	let task = Process()
+	task.launchPath = "/usr/bin/env"
+	task.arguments = ["tmux", "display", "-p", "-t", pane, "#{window_id}"]
+	let pipe = Pipe()
+	task.standardOutput = pipe
+	task.standardError = FileHandle.nullDevice
+	do {
+		try task.run()
+		task.waitUntilExit()
+	} catch {
+		return nil
+	}
+	let data = pipe.fileHandleForReading.readDataToEndOfFile()
+	let out = String(data: data, encoding: .utf8)?
+		.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+	return out.isEmpty ? nil : out
+}
+
 func currentTmuxPane() -> String? {
 	let task = Process()
 	task.launchPath = "/usr/bin/env"
@@ -134,9 +163,11 @@ let watcher: Watcher? = hostBundle.map { Watcher(host: $0, pane: tmuxPane) }
 
 final class Delegate: NSObject, UNUserNotificationCenterDelegate {
 	let hostBundle: String?
+	let tmuxPane: String?
 
-	init(hostBundle: String?) {
+	init(hostBundle: String?, tmuxPane: String?) {
 		self.hostBundle = hostBundle
+		self.tmuxPane = tmuxPane
 	}
 
 	func userNotificationCenter(
@@ -150,6 +181,13 @@ final class Delegate: NSObject, UNUserNotificationCenterDelegate {
 		_ center: UNUserNotificationCenter,
 		didReceive response: UNNotificationResponse
 	) async {
+		if let pane = tmuxPane {
+			let windowId = tmuxWindowId(forPane: pane)
+			if let windowId = windowId {
+				runTmux(["select-window", "-t", windowId])
+			}
+			runTmux(["select-pane", "-t", pane])
+		}
 		if let bundle = hostBundle,
 			let url = NSWorkspace.shared.urlForApplication(
 				withBundleIdentifier: bundle
@@ -165,7 +203,7 @@ final class Delegate: NSObject, UNUserNotificationCenterDelegate {
 	}
 }
 
-let delegate = Delegate(hostBundle: hostBundle)
+let delegate = Delegate(hostBundle: hostBundle, tmuxPane: tmuxPane)
 center.delegate = delegate
 
 if watcher != nil {
