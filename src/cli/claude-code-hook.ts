@@ -1,4 +1,5 @@
-import { createContext, notifyUser } from "../core/index.ts";
+import { basename } from "node:path";
+import { createContext, notifyUser, resolveIcon } from "../core/index.ts";
 
 type HookEvent = "on-stop" | "on-notification";
 
@@ -19,7 +20,7 @@ export async function runClaudeCodeHook(argv: string[]): Promise<void> {
 		}
 
 		if (event === "on-stop") {
-			await handleOnStop();
+			await handleOnStop(payload);
 			return;
 		}
 
@@ -59,9 +60,14 @@ async function readPayload(): Promise<Record<string, unknown> | null> {
 	return payload;
 }
 
-async function handleOnStop(): Promise<void> {
+async function handleOnStop(payload: Record<string, unknown>): Promise<void> {
 	const ctx = await createContext();
-	await notifyUser(ctx, { title: "Claude Code", message: "Done" });
+	const iconPath = await resolveIcon(ctx.config, "claude-code");
+	await notifyUser(ctx, {
+		title: titleWithCwd(payload),
+		message: "Done",
+		iconPath,
+	});
 }
 
 async function handleOnNotification(
@@ -74,7 +80,19 @@ async function handleOnNotification(
 			: "Question";
 
 	const ctx = await createContext();
-	await notifyUser(ctx, { title: "Claude Code", message });
+	const iconPath = await resolveIcon(ctx.config, "claude-code");
+	await notifyUser(ctx, { title: titleWithCwd(payload), message, iconPath });
+}
+
+function titleWithCwd(payload: Record<string, unknown>): string {
+	const cwd = payload.cwd;
+	if (typeof cwd === "string" && cwd.trim() !== "") {
+		const name = basename(cwd);
+		if (name !== "") {
+			return `Claude Code · ${name}`;
+		}
+	}
+	return "Claude Code";
 }
 
 function isHookEvent(value: string | undefined): value is HookEvent {

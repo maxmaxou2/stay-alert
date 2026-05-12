@@ -1,9 +1,5 @@
 # Example stay-alert configuration. Copy to ~/.config/stay-alert/config.toml and tweak.
 
-# Lists terminal applications considered active coding-agent hosts.
-[focus]
-terminalApps = ["Ghostty", "iTerm2", "Terminal", "Alacritty", "kitty", "WezTerm", "Hyper", "Tabby", "Warp", "Code", "Code - Insiders", "VSCodium", "Cursor", "Windsurf", "Zed", "Trae"]
-
 # Controls sounds used for transient and sticky notifications.
 [notifications]
 # transientSound default: null (no sound). TOML has no null value, so omit this key to keep the default.

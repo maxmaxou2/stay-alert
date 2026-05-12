@@ -87,6 +87,189 @@ export async function runInit(argv: string[]): Promise<void> {
 
 	if (options.claudeCode || options.opencode) {
 		await buildFrontmostHelper();
+		await buildNotifierBundle();
+	}
+}
+
+async function buildNotifierBundle(): Promise<void> {
+	if (process.platform !== "darwin") {
+		return;
+	}
+
+	const { notifierApp, notifierBin } = resolvePaths();
+	const swiftSource = join(
+		import.meta.dir,
+		"..",
+		"..",
+		"src",
+		"native",
+		"notifier.swift",
+	);
+	const plistSource = join(
+		import.meta.dir,
+		"..",
+		"..",
+		"src",
+		"native",
+		"notifier.plist",
+	);
+
+	try {
+		await stat(swiftSource);
+		await stat(plistSource);
+	} catch (error) {
+		if (isNodeError(error) && error.code === "ENOENT") {
+			console.warn(
+				`notifier:    missing source files; skipped (${swiftSource})`,
+			);
+			return;
+		}
+		throw error;
+	}
+
+	if (await isNotifierUpToDate(notifierBin, swiftSource, plistSource)) {
+		console.log(`notifier:    bundle already up to date (${notifierApp})`);
+		return;
+	}
+
+	const macOSDir = dirname(notifierBin);
+	const infoPlist = join(notifierApp, "Contents", "Info.plist");
+	await mkdir(macOSDir, { recursive: true });
+
+	let swiftcExit: number;
+	let swiftcStderr: string;
+	try {
+		const proc = Bun.spawn(
+			["swiftc", "-O", "-o", notifierBin, swiftSource],
+			{ stdio: ["ignore", "pipe", "pipe"] },
+		);
+		swiftcStderr = await new Response(proc.stderr).text();
+		swiftcExit = await proc.exited;
+	} catch (error) {
+		if (isNodeError(error) && error.code === "ENOENT") {
+			console.warn(
+				"notifier:    swiftc not found; install Xcode Command Line Tools to enable the notifier",
+			);
+			return;
+		}
+		throw error;
+	}
+
+	if (swiftcExit !== 0) {
+		console.warn(
+			`notifier:    failed to compile (exit ${swiftcExit}); banners will not work`,
+		);
+		if (swiftcStderr.trim().length > 0) {
+			console.warn(`             ${swiftcStderr.trim()}`);
+		}
+		return;
+	}
+
+	await copyFile(plistSource, infoPlist);
+
+	const resourcesDir = join(notifierApp, "Contents", "Resources");
+	await mkdir(resourcesDir, { recursive: true });
+	const assetsRoot = join(import.meta.dir, "..", "..", "assets");
+	const targetIcns = join(resourcesDir, "AppIcon.icns");
+	const icnsSource = join(assetsRoot, "notifier.icns");
+	const pngSource = join(assetsRoot, "notifier.png");
+
+	if (await fileExists(icnsSource)) {
+		await copyFile(icnsSource, targetIcns);
+	} else if (await fileExists(pngSource)) {
+		const converted = await convertPngToIcns(pngSource, targetIcns);
+		if (!converted) {
+			console.warn(
+				"notifier:    could not convert assets/notifier.png to .icns; bundle uses generic icon",
+			);
+		}
+	}
+
+	let codesignExit: number;
+	let codesignStderr: string;
+	try {
+		const proc = Bun.spawn(
+			["codesign", "--sign", "-", "--force", notifierApp],
+			{ stdio: ["ignore", "pipe", "pipe"] },
+		);
+		codesignStderr = await new Response(proc.stderr).text();
+		codesignExit = await proc.exited;
+	} catch (error) {
+		console.warn(
+			`notifier:    codesign failed: ${errorMessage(error)}; banners may not appear`,
+		);
+		return;
+	}
+
+	if (codesignExit !== 0) {
+		console.warn(
+			`notifier:    codesign failed (exit ${codesignExit}); banners may not appear`,
+		);
+		if (codesignStderr.trim().length > 0) {
+			console.warn(`             ${codesignStderr.trim()}`);
+		}
+		return;
+	}
+
+	console.log(`notifier:    bundle built at ${notifierApp}`);
+}
+
+async function fileExists(path: string): Promise<boolean> {
+	try {
+		await stat(path);
+		return true;
+	} catch (error) {
+		if (isNodeError(error) && error.code === "ENOENT") {
+			return false;
+		}
+		throw error;
+	}
+}
+
+async function convertPngToIcns(
+	pngPath: string,
+	icnsPath: string,
+): Promise<boolean> {
+	try {
+		const proc = Bun.spawn(
+			["sips", "-s", "format", "icns", pngPath, "--out", icnsPath],
+			{ stdio: ["ignore", "ignore", "pipe"] },
+		);
+		const exitCode = await proc.exited;
+		return exitCode === 0;
+	} catch {
+		return false;
+	}
+}
+
+async function isNotifierUpToDate(
+	binPath: string,
+	swiftSource: string,
+	plistSource: string,
+): Promise<boolean> {
+	try {
+		const binStat = await stat(binPath);
+		const sourceStats = await Promise.all([
+			stat(swiftSource),
+			stat(plistSource),
+		]);
+		const assetsRoot = join(import.meta.dir, "..", "..", "assets");
+		for (const candidate of ["notifier.icns", "notifier.png"]) {
+			const path = join(assetsRoot, candidate);
+			try {
+				sourceStats.push(await stat(path));
+			} catch (error) {
+				if (!isNodeError(error) || error.code !== "ENOENT") {
+					throw error;
+				}
+			}
+		}
+		return sourceStats.every((s) => binStat.mtimeMs >= s.mtimeMs);
+	} catch (error) {
+		if (isNodeError(error) && error.code === "ENOENT") {
+			return false;
+		}
+		throw error;
 	}
 }
 
@@ -95,14 +278,14 @@ async function buildFrontmostHelper(): Promise<void> {
 		return;
 	}
 
-	const target = resolvePaths().frontmostBin;
+	const target = resolvePaths().bundleIdBin;
 	const source = join(
 		import.meta.dir,
 		"..",
 		"..",
 		"src",
 		"native",
-		"frontmost.swift",
+		"bundle-id.swift",
 	);
 
 	try {
@@ -115,7 +298,7 @@ async function buildFrontmostHelper(): Promise<void> {
 		throw error;
 	}
 
-	if (await isFrontmostUpToDate(target, source)) {
+	if (await isHelperUpToDate(target, source)) {
 		console.log(`focus:       helper already up to date (${target})`);
 		return;
 	}
@@ -154,7 +337,7 @@ async function buildFrontmostHelper(): Promise<void> {
 	console.log(`focus:       compiled helper at ${target}`);
 }
 
-async function isFrontmostUpToDate(
+async function isHelperUpToDate(
 	target: string,
 	source: string,
 ): Promise<boolean> {
@@ -467,10 +650,12 @@ async function installOpencodePlugin(): Promise<void> {
 		return;
 	}
 
-	await createExclusiveBackup(resolvedFile, backupFile);
+	const backedUp = await createExclusiveBackup(resolvedFile, backupFile);
 	await writeTextAtomically(resolvedFile, pluginContents);
 	console.log(`opencode:    plugin updated at ${resolvedFile}`);
-	console.log(`             backup: ${backupFile}`);
+	if (backedUp) {
+		console.log(`             backup: ${backupFile}`);
+	}
 	await linkOpencodePackage();
 }
 
@@ -618,14 +803,13 @@ async function readOptionalFile(file: string): Promise<string | null> {
 async function createExclusiveBackup(
 	sourceFile: string,
 	backupFile: string,
-): Promise<void> {
+): Promise<boolean> {
 	try {
 		await copyFile(sourceFile, backupFile, constants.COPYFILE_EXCL);
+		return true;
 	} catch (error) {
 		if (isNodeError(error) && error.code === "EEXIST") {
-			throw new Error(
-				`opencode plugin backup already exists at ${backupFile}; delete it before re-running stay-alert init`,
-			);
+			return false;
 		}
 
 		throw new Error(

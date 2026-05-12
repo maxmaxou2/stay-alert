@@ -1,77 +1,165 @@
 import { access } from "node:fs/promises";
-import type { Config } from "./config.ts";
 import { resolvePaths } from "./paths.ts";
 
-const FOCUS_TIMEOUT_MS = 250;
-const FRONTMOST_APP_SCRIPT =
-	'tell application "System Events" to get name of first application process whose frontmost is true';
-let hasWarnedAboutMissingOsascript = false;
-let frontmostBinCache: string | null | undefined;
+const HELPER_TIMEOUT_MS = 250;
+let helperPathCache: string | null | undefined;
+let hostBundleCache: string | null | undefined;
+const infoCache = new Map<string, BundleInfo>();
 
 export type FocusResult = {
 	focused: boolean;
-	appName: string | null;
+	hostBundleId: string | null;
 };
 
-export function matchesTerminalApp(
-	name: string,
-	terminalApps: string[],
-): boolean {
-	const normalizedName = name.trim().toLowerCase();
+export type BundleInfo = {
+	name: string | null;
+	iconPath: string | null;
+};
 
-	if (normalizedName === "") {
-		return false;
+export async function getBundleInfo(bundleId: string): Promise<BundleInfo> {
+	const cached = infoCache.get(bundleId);
+	if (cached !== undefined) {
+		return cached;
 	}
 
-	return terminalApps.some((app) => app.toLowerCase() === normalizedName);
+	const helper = await resolveHelper();
+	if (helper === null) {
+		const fallback: BundleInfo = { name: null, iconPath: null };
+		infoCache.set(bundleId, fallback);
+		return fallback;
+	}
+
+	const raw = await runRaw([helper, "info", bundleId], HELPER_TIMEOUT_MS);
+	const [nameRaw = "", iconRaw = ""] = (raw ?? "").split("\n");
+	const result: BundleInfo = {
+		name: nameRaw.trim() === "" ? null : nameRaw.trim(),
+		iconPath: iconRaw.trim() === "" ? null : iconRaw.trim(),
+	};
+	infoCache.set(bundleId, result);
+	return result;
 }
 
-export async function isTerminalFocused(config: Config): Promise<FocusResult> {
-	const appName = await readFrontmostAppName();
+async function runRaw(
+	argv: string[],
+	timeoutMs: number,
+): Promise<string | null> {
+	const abortController = new AbortController();
+	const timeout = setTimeout(() => abortController.abort(), timeoutMs);
 
-	if (appName === null) {
-		return { focused: false, appName: null };
+	try {
+		const proc = Bun.spawn(argv, {
+			stdout: "pipe",
+			stderr: "ignore",
+			signal: abortController.signal,
+		});
+		const [stdout, exitCode] = await Promise.all([
+			new Response(proc.stdout).text(),
+			proc.exited,
+		]);
+		if (exitCode !== 0) return null;
+		return stdout;
+	} catch {
+		return null;
+	} finally {
+		clearTimeout(timeout);
 	}
+}
+
+export async function isTerminalFocused(): Promise<FocusResult> {
+	const [host, front] = await Promise.all([
+		getHostBundleId(),
+		getFrontmostBundleId(),
+	]);
 
 	return {
-		focused: matchesTerminalApp(appName, config.focus.terminalApps),
-		appName,
+		focused: host !== null && front !== null && host === front,
+		hostBundleId: host,
 	};
 }
 
-async function readFrontmostAppName(): Promise<string | null> {
-	const bin = await resolveFrontmostBin();
+export async function getHostBundleId(): Promise<string | null> {
+	if (hostBundleCache !== undefined) {
+		return hostBundleCache;
+	}
 
-	if (bin !== null) {
-		const fromBin = await runFrontmost([bin]);
-		if (fromBin !== null) {
-			return fromBin;
+	const helper = await resolveHelper();
+	if (helper === null) {
+		hostBundleCache = null;
+		return null;
+	}
+
+	const direct = await runHelper([helper, "host", String(process.pid)]);
+	if (direct !== null) {
+		hostBundleCache = direct;
+		return direct;
+	}
+
+	const tmuxClientPid = await readTmuxClientPid();
+	if (tmuxClientPid !== null) {
+		const viaTmux = await runHelper([helper, "host", String(tmuxClientPid)]);
+		if (viaTmux !== null) {
+			hostBundleCache = viaTmux;
+			return viaTmux;
 		}
 	}
 
-	return runFrontmost(["osascript", "-e", FRONTMOST_APP_SCRIPT]);
+	hostBundleCache = null;
+	return null;
 }
 
-async function resolveFrontmostBin(): Promise<string | null> {
-	if (frontmostBinCache !== undefined) {
-		return frontmostBinCache;
+async function getFrontmostBundleId(): Promise<string | null> {
+	const helper = await resolveHelper();
+	if (helper === null) {
+		return null;
+	}
+	return runHelper([helper, "frontmost"]);
+}
+
+async function resolveHelper(): Promise<string | null> {
+	if (helperPathCache !== undefined) {
+		return helperPathCache;
 	}
 
-	const bin = resolvePaths().frontmostBin;
+	const bin = resolvePaths().bundleIdBin;
 
 	try {
 		await access(bin);
-		frontmostBinCache = bin;
+		helperPathCache = bin;
 	} catch {
-		frontmostBinCache = null;
+		helperPathCache = null;
 	}
 
-	return frontmostBinCache;
+	return helperPathCache;
 }
 
-async function runFrontmost(argv: string[]): Promise<string | null> {
+async function readTmuxClientPid(): Promise<number | null> {
+	if (!process.env.TMUX) {
+		return null;
+	}
+
+	const value = await runProcess(
+		["tmux", "display", "-p", "#{client_pid}"],
+		HELPER_TIMEOUT_MS,
+	);
+
+	if (value === null) {
+		return null;
+	}
+
+	const pid = Number.parseInt(value, 10);
+	return Number.isFinite(pid) && pid > 0 ? pid : null;
+}
+
+async function runHelper(argv: string[]): Promise<string | null> {
+	return runProcess(argv, HELPER_TIMEOUT_MS);
+}
+
+async function runProcess(
+	argv: string[],
+	timeoutMs: number,
+): Promise<string | null> {
 	const abortController = new AbortController();
-	const timeout = setTimeout(() => abortController.abort(), FOCUS_TIMEOUT_MS);
+	const timeout = setTimeout(() => abortController.abort(), timeoutMs);
 
 	try {
 		const proc = Bun.spawn(argv, {
@@ -84,30 +172,16 @@ async function runFrontmost(argv: string[]): Promise<string | null> {
 			new Response(proc.stdout).text(),
 			proc.exited,
 		]);
-		const appName = stdout.trim();
+		const value = stdout.trim();
 
-		if (exitCode !== 0 || appName === "") {
+		if (exitCode !== 0 || value === "") {
 			return null;
 		}
 
-		return appName;
-	} catch (error) {
-		if (
-			argv[0] === "osascript" &&
-			isNodeError(error) &&
-			error.code === "ENOENT" &&
-			!hasWarnedAboutMissingOsascript
-		) {
-			console.warn("stay-alert: osascript not found; focus detection disabled");
-			hasWarnedAboutMissingOsascript = true;
-		}
-
+		return value;
+	} catch {
 		return null;
 	} finally {
 		clearTimeout(timeout);
 	}
-}
-
-function isNodeError(error: unknown): error is NodeJS.ErrnoException {
-	return error instanceof Error && "code" in error;
 }

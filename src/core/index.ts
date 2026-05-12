@@ -1,10 +1,13 @@
 import type { Config } from "./config.ts";
 import { loadConfig } from "./config.ts";
-import { isTerminalFocused } from "./focus.ts";
+import { getHostBundleId, isTerminalFocused } from "./focus.ts";
 import { notify } from "./notify/index.ts";
 import type { Paths } from "./paths.ts";
 import { resolvePaths } from "./paths.ts";
 import type { NotifyUrgency } from "./types.ts";
+
+export { resolveIcon } from "./assets.ts";
+export type { IconSource } from "./assets.ts";
 
 export type { Config } from "./config.ts";
 export { DEFAULT_CONFIG, loadConfig } from "./config.ts";
@@ -29,15 +32,24 @@ export async function createContext(
 
 export async function notifyUser(
 	ctx: Context,
-	opts: { title: string; message: string },
+	opts: { title: string; message: string; iconPath?: string | null },
 ): Promise<void> {
-	const focus = await isTerminalFocused(ctx.config);
-	const urgency: NotifyUrgency =
-		focus.appName === null || focus.focused === false ? "sticky" : "transient";
+	const [focus, hostBundleId] = await Promise.all([
+		isTerminalFocused(),
+		getHostBundleId(),
+	]);
+	const urgency: NotifyUrgency = focus.focused ? "transient" : "sticky";
 	const sound =
 		urgency === "transient"
 			? (ctx.config.notifications.transientSound ?? undefined)
 			: ctx.config.notifications.stickySound;
 
-	await notify({ title: opts.title, message: opts.message, sound, urgency });
+	await notify({
+		title: opts.title,
+		message: opts.message,
+		sound,
+		urgency,
+		...(opts.iconPath ? { appIconPath: opts.iconPath } : {}),
+		...(hostBundleId ? { senderBundleId: hostBundleId } : {}),
+	});
 }

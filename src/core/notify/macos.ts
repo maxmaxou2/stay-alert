@@ -1,7 +1,8 @@
+import { access } from "node:fs/promises";
+import { resolvePaths } from "../paths.ts";
 import type { Notifier, NotifyOptions } from "./types.ts";
 
-const NOTIFICATION_GROUP = "stay-alert";
-let hasWarnedAboutMissingAlerter = false;
+let hasWarnedAboutMissingNotifier = false;
 
 export const macosNotifier: Notifier = {
 	name: "macos",
@@ -14,22 +15,37 @@ export const macosNotifier: Notifier = {
 };
 
 async function notify(opts: NotifyOptions): Promise<void> {
-	const argv = [
-		"alerter",
-		"--message",
-		opts.message,
-		"--title",
-		opts.title,
-		"--group",
-		NOTIFICATION_GROUP,
-	];
+	const bin = resolvePaths().notifierBin;
+
+	try {
+		await access(bin);
+	} catch {
+		warnAboutMissingNotifier(bin);
+		return;
+	}
+
+	const argv = [bin, "--title", opts.title, "--message", opts.message];
+
+	if (opts.subtitle !== undefined && opts.subtitle.trim() !== "") {
+		argv.push("--subtitle", opts.subtitle);
+	}
+
+	if (opts.appIconPath !== undefined && opts.appIconPath !== "") {
+		argv.push("--icon", opts.appIconPath);
+	}
+
+	if (opts.senderBundleId !== undefined && opts.senderBundleId !== "") {
+		argv.push("--host", opts.senderBundleId);
+	}
 
 	if (opts.sound !== undefined) {
 		argv.push("--sound", opts.sound);
 	}
 
-	if (opts.urgency === "transient") {
-		argv.push("--timeout", "5");
+	if (opts.urgency === "sticky") {
+		argv.push("--sticky");
+	} else {
+		argv.push("--transient-seconds", "5");
 	}
 
 	try {
@@ -39,23 +55,22 @@ async function notify(opts: NotifyOptions): Promise<void> {
 		proc.unref();
 	} catch (error) {
 		if (isNodeError(error) && error.code === "ENOENT") {
-			warnAboutMissingAlerter();
+			warnAboutMissingNotifier(bin);
 			return;
 		}
-
 		throw error;
 	}
 }
 
-function warnAboutMissingAlerter(): void {
-	if (hasWarnedAboutMissingAlerter) {
+function warnAboutMissingNotifier(bin: string): void {
+	if (hasWarnedAboutMissingNotifier) {
 		return;
 	}
 
 	console.warn(
-		"stay-alert: alerter not found; install it with `brew install vjeantet/tap/alerter` for notifications",
+		`stay-alert: notifier bundle not found at ${bin}; run \`stay-alert init\` to build it`,
 	);
-	hasWarnedAboutMissingAlerter = true;
+	hasWarnedAboutMissingNotifier = true;
 }
 
 function isNodeError(error: unknown): error is NodeJS.ErrnoException {

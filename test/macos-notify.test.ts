@@ -1,24 +1,47 @@
-import { afterEach, expect, test } from "bun:test";
+import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
+import { afterEach, beforeEach, expect, test } from "bun:test";
 
 import { macosNotifier } from "../src/core/notify/macos.ts";
 
 const originalSpawn = Bun.spawn;
 const originalWarn = console.warn;
+const originalHome = process.env.STAY_ALERT_HOME;
+
+let notifierBin: string;
+
+beforeEach(async () => {
+	const home = await mkdtemp(join(tmpdir(), "stay-alert-macos-"));
+	process.env.STAY_ALERT_HOME = home;
+	notifierBin = join(
+		home,
+		"Applications",
+		"StayAlertNotifier.app",
+		"Contents",
+		"MacOS",
+		"StayAlertNotifier",
+	);
+	await mkdir(dirname(notifierBin), { recursive: true });
+	await writeFile(notifierBin, "");
+});
 
 afterEach(() => {
 	Bun.spawn = originalSpawn;
 	console.warn = originalWarn;
+	if (originalHome === undefined) {
+		delete process.env.STAY_ALERT_HOME;
+	} else {
+		process.env.STAY_ALERT_HOME = originalHome;
+	}
 });
 
-test("macOS notifier sends transient alerts through detached alerter with timeout", async () => {
+test("macOS notifier spawns the bundle binary for transient alerts", async () => {
 	let argv: string[] | undefined;
-	let options: { stdio?: string[] } | undefined;
 	let didUnref = false;
 
-	Bun.spawn = ((command: string[], spawnOptions: { stdio?: string[] }) => {
+	Bun.spawn = ((command: string[]) => {
 		argv = command;
-		options = spawnOptions;
-
 		return {
 			unref() {
 				didUnref = true;
@@ -34,55 +57,57 @@ test("macOS notifier sends transient alerts through detached alerter with timeou
 	});
 
 	expect(argv).toEqual([
-		"alerter",
-		"--message",
-		"hello",
+		notifierBin,
 		"--title",
 		"stay-alert",
-		"--group",
-		"stay-alert",
+		"--message",
+		"hello",
 		"--sound",
 		"Glass",
-		"--timeout",
+		"--transient-seconds",
 		"5",
 	]);
-	expect(options).toEqual({ stdio: ["ignore", "ignore", "ignore"] });
 	expect(didUnref).toBe(true);
 });
 
-test("macOS notifier sends sticky alerts through alerter without timeout", async () => {
+test("macOS notifier sends sticky alerts with --sticky and forwards host/icon", async () => {
 	let argv: string[] | undefined;
 
 	Bun.spawn = ((command: string[]) => {
 		argv = command;
-
-		return {
-			unref() {},
-		};
+		return { unref() {} };
 	}) as typeof Bun.spawn;
 
 	await macosNotifier.notify({
 		message: "world",
 		title: "stay-alert",
 		urgency: "sticky",
+		senderBundleId: "com.example.term",
+		appIconPath: "/tmp/icon.png",
+		subtitle: "ctx",
 	});
 
 	expect(argv).toEqual([
-		"alerter",
-		"--message",
-		"world",
+		notifierBin,
 		"--title",
 		"stay-alert",
-		"--group",
-		"stay-alert",
+		"--message",
+		"world",
+		"--subtitle",
+		"ctx",
+		"--icon",
+		"/tmp/icon.png",
+		"--host",
+		"com.example.term",
+		"--sticky",
 	]);
 });
 
-test("macOS notifier warns once when alerter is missing", async () => {
+test("macOS notifier warns once when the bundle binary is missing", async () => {
+	process.env.STAY_ALERT_HOME = await mkdtemp(
+		join(tmpdir(), "stay-alert-missing-"),
+	);
 	const warnings: string[] = [];
-	Bun.spawn = (() => {
-		throw Object.assign(new Error("missing"), { code: "ENOENT" });
-	}) as typeof Bun.spawn;
 	console.warn = (message?: unknown) => {
 		warnings.push(String(message));
 	};
@@ -96,7 +121,6 @@ test("macOS notifier warns once when alerter is missing", async () => {
 	await macosNotifier.notify(opts);
 	await macosNotifier.notify(opts);
 
-	expect(warnings).toEqual([
-		"stay-alert: alerter not found; install it with `brew install vjeantet/tap/alerter` for notifications",
-	]);
+	expect(warnings.length).toBe(1);
+	expect(warnings[0]).toContain("notifier bundle not found");
 });

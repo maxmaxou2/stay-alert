@@ -11,6 +11,9 @@ Commands:
   init [--claude-code] [--opencode] [--shell] [--shell-rc PATH]
                               Install Claude Code hooks / opencode plugin / shell hook
                               --shell-rc PATH overrides the default ~/.zshrc target
+  grant-terminal-notifications
+                              Trigger this terminal's macOS notification permission prompt
+                              (run once per terminal app you use)
   test                        Fire one transient + one sticky notification
   claude-code-hook <event>    Internal: invoked by Claude Code hooks
   notify-command --cmd C --exit N --duration-ms N
@@ -50,6 +53,14 @@ async function main(): Promise<void> {
 	if (command === "claude-code-hook") {
 		const { runClaudeCodeHook } = await import("./claude-code-hook.ts");
 		await runClaudeCodeHook(process.argv.slice(3));
+		return;
+	}
+
+	if (command === "grant-terminal-notifications") {
+		const { runGrantTerminalNotifications } = await import(
+			"./grant-terminal-notifications.ts"
+		);
+		await runGrantTerminalNotifications();
 		return;
 	}
 

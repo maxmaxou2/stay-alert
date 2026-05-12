@@ -7,7 +7,7 @@ help:
 	@echo "  help       Show this help message"
 	@echo "  setup      One-shot: install prerequisites, link stay-alert, and install hooks"
 	@echo "             Override the shell rc target with: make setup SHELL_RC=/path/to/rc"
-	@echo "  prereqs    Ensure Xcode CLT, Homebrew, bun, and alerter are installed"
+	@echo "  prereqs    Ensure Xcode CLT, Homebrew, and bun are installed"
 	@echo "  install    Link stay-alert globally with bun link"
 	@echo "  uninstall  Remove the global bun link"
 	@echo "  init       Run stay-alert init (Claude Code + opencode by default)"
@@ -30,7 +30,6 @@ prereqs:
 		exit 1; \
 	}
 	@command -v bun >/dev/null 2>&1 || brew install bun
-	@command -v alerter >/dev/null 2>&1 || brew install vjeantet/tap/alerter
 
 install:
 	bun link

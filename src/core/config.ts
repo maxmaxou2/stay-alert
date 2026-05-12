@@ -4,12 +4,11 @@ import { parse } from "smol-toml";
 import type { Paths } from "./paths.ts";
 
 export type Config = {
-	focus: {
-		terminalApps: string[];
-	};
 	notifications: {
 		transientSound: string | null;
 		stickySound: string;
+		iconClaudeCode: string | null;
+		iconOpencode: string | null;
 	};
 	shell: {
 		thresholdMs: number;
@@ -18,29 +17,11 @@ export type Config = {
 };
 
 export const DEFAULT_CONFIG: Config = {
-	focus: {
-		terminalApps: [
-			"Ghostty",
-			"iTerm2",
-			"Terminal",
-			"Alacritty",
-			"kitty",
-			"WezTerm",
-			"Hyper",
-			"Tabby",
-			"Warp",
-			"Code",
-			"Code - Insiders",
-			"VSCodium",
-			"Cursor",
-			"Windsurf",
-			"Zed",
-			"Trae",
-		],
-	},
 	notifications: {
 		transientSound: null,
 		stickySound: "default",
+		iconClaudeCode: null,
+		iconOpencode: null,
 	},
 	shell: {
 		thresholdMs: 15_000,
@@ -97,7 +78,6 @@ export async function loadConfig(paths: Paths): Promise<Config> {
 
 function mergeConfig(userConfig: TomlTableWithoutBigInt): Config {
 	return {
-		focus: mergeFocusConfig(userConfig.focus),
 		notifications: mergeNotificationsConfig(userConfig.notifications),
 		shell: mergeShellConfig(userConfig.shell),
 	};
@@ -145,24 +125,6 @@ function positiveIntegerOrDefault(
 	return value;
 }
 
-function mergeFocusConfig(
-	value: TomlValueWithoutBigInt | undefined,
-): Config["focus"] {
-	if (value === undefined) {
-		return { terminalApps: [...DEFAULT_CONFIG.focus.terminalApps] };
-	}
-
-	const table = requireTable("focus", value);
-
-	return {
-		terminalApps: stringArrayOrDefault(
-			"focus.terminalApps",
-			table.terminalApps,
-			DEFAULT_CONFIG.focus.terminalApps,
-		),
-	};
-}
-
 function mergeNotificationsConfig(
 	value: TomlValueWithoutBigInt | undefined,
 ): Config["notifications"] {
@@ -182,6 +144,16 @@ function mergeNotificationsConfig(
 			"notifications.stickySound",
 			table.stickySound,
 			DEFAULT_CONFIG.notifications.stickySound,
+		),
+		iconClaudeCode: nullableStringOrDefault(
+			"notifications.iconClaudeCode",
+			table.iconClaudeCode,
+			DEFAULT_CONFIG.notifications.iconClaudeCode,
+		),
+		iconOpencode: nullableStringOrDefault(
+			"notifications.iconOpencode",
+			table.iconOpencode,
+			DEFAULT_CONFIG.notifications.iconOpencode,
 		),
 	};
 }
