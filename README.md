@@ -19,7 +19,7 @@ Early / personal use. macOS only. Requires `bun` and Xcode Command Line Tools (f
 ## Install
 
 ```sh
-git clone https://github.com/<you>/stay-alert.git
+git clone https://github.com/maxmaxou2/stay-alert.git
 cd stay-alert
 make setup        # installs prereqs, runs `bun link`, then `stay-alert init`
 ```
