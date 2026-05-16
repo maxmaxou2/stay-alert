@@ -159,7 +159,7 @@ final class Watcher {
 	}
 }
 
-let watcher: Watcher? = hostBundle.map { Watcher(host: $0, pane: tmuxPane) }
+let watcher: Watcher? = sticky ? hostBundle.map { Watcher(host: $0, pane: tmuxPane) } : nil
 
 final class Delegate: NSObject, UNUserNotificationCenterDelegate {
 	let hostBundle: String?
@@ -215,10 +215,6 @@ if watcher != nil {
 		let app = note.userInfo?[NSWorkspace.applicationUserInfoKey]
 			as? NSRunningApplication
 		watcher?.onActivation(app?.bundleIdentifier)
-	}
-
-	if let front = NSWorkspace.shared.frontmostApplication?.bundleIdentifier {
-		watcher?.onActivation(front)
 	}
 }
 
