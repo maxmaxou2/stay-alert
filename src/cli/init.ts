@@ -127,11 +127,6 @@ async function buildNotifierBundle(): Promise<void> {
 		throw error;
 	}
 
-	if (await isNotifierUpToDate(notifierBin, swiftSource, plistSource)) {
-		console.log(`notifier:    bundle already up to date (${notifierApp})`);
-		return;
-	}
-
 	const macOSDir = dirname(notifierBin);
 	const infoPlist = join(notifierApp, "Contents", "Info.plist");
 	await mkdir(macOSDir, { recursive: true });
@@ -139,10 +134,9 @@ async function buildNotifierBundle(): Promise<void> {
 	let swiftcExit: number;
 	let swiftcStderr: string;
 	try {
-		const proc = Bun.spawn(
-			["swiftc", "-O", "-o", notifierBin, swiftSource],
-			{ stdio: ["ignore", "pipe", "pipe"] },
-		);
+		const proc = Bun.spawn(["swiftc", "-O", "-o", notifierBin, swiftSource], {
+			stdio: ["ignore", "pipe", "pipe"],
+		});
 		swiftcStderr = await new Response(proc.stderr).text();
 		swiftcExit = await proc.exited;
 	} catch (error) {
@@ -242,37 +236,6 @@ async function convertPngToIcns(
 	}
 }
 
-async function isNotifierUpToDate(
-	binPath: string,
-	swiftSource: string,
-	plistSource: string,
-): Promise<boolean> {
-	try {
-		const binStat = await stat(binPath);
-		const sourceStats = await Promise.all([
-			stat(swiftSource),
-			stat(plistSource),
-		]);
-		const assetsRoot = join(import.meta.dir, "..", "..", "assets");
-		for (const candidate of ["notifier.icns", "notifier.png"]) {
-			const path = join(assetsRoot, candidate);
-			try {
-				sourceStats.push(await stat(path));
-			} catch (error) {
-				if (!isNodeError(error) || error.code !== "ENOENT") {
-					throw error;
-				}
-			}
-		}
-		return sourceStats.every((s) => binStat.mtimeMs >= s.mtimeMs);
-	} catch (error) {
-		if (isNodeError(error) && error.code === "ENOENT") {
-			return false;
-		}
-		throw error;
-	}
-}
-
 async function buildFrontmostHelper(): Promise<void> {
 	if (process.platform !== "darwin") {
 		return;
@@ -296,11 +259,6 @@ async function buildFrontmostHelper(): Promise<void> {
 			return;
 		}
 		throw error;
-	}
-
-	if (await isHelperUpToDate(target, source)) {
-		console.log(`focus:       helper already up to date (${target})`);
-		return;
 	}
 
 	await mkdir(dirname(target), { recursive: true });
@@ -335,24 +293,6 @@ async function buildFrontmostHelper(): Promise<void> {
 	}
 
 	console.log(`focus:       compiled helper at ${target}`);
-}
-
-async function isHelperUpToDate(
-	target: string,
-	source: string,
-): Promise<boolean> {
-	try {
-		const [targetStat, sourceStat] = await Promise.all([
-			stat(target),
-			stat(source),
-		]);
-		return targetStat.mtimeMs >= sourceStat.mtimeMs;
-	} catch (error) {
-		if (isNodeError(error) && error.code === "ENOENT") {
-			return false;
-		}
-		throw error;
-	}
 }
 
 function parseArgs(argv: string[]): InitOptions {
